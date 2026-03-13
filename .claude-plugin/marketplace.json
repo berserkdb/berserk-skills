@@ -1,0 +1,25 @@
+{
+  "name": "berserk-skills",
+  "owner": {
+    "name": "BerserkDB",
+    "email": "support@berserk.dev"
+  },
+  "metadata": {
+    "description": "Berserk skills and agents for AI coding agents",
+    "version": "1.1.0"
+  },
+  "plugins": [
+    {
+      "name": "berserk",
+      "description": "Query logs, traces, and metrics with KQL using the bzrk CLI",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./skills/berserk"
+      ],
+      "agents": [
+        "./agents/explore.md"
+      ]
+    }
+  ]
+}
