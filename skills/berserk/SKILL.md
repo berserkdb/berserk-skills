@@ -54,4 +54,4 @@ bzrk -P <profile> search "<KQL>" --since "<TIME>" [--until "<TIME>"] --desc "<wh
 
 ### Known limitations
 
-`now()`, `ago()`, `top`, `distinct`, `union`, `coalesce()`, `format_datetime()` are not yet supported.
+`distinct` and `union` (of non-datatable sources) are not yet supported.

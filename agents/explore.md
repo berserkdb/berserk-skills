@@ -474,7 +474,7 @@ bzrk -P <profile> search "default | where \$time between(datetime(2024-01-07T08:
 
 ## Known Limitations
 
-`now()`, `ago()`, `top`, `distinct`, `union`, `coalesce()`, `format_datetime()` are not yet supported. For `percentile()` on dynamic columns, cast first: `percentile(tolong(col), 95)`.
+`distinct` and `union` (of non-datatable sources) are not yet supported. For `percentile()` on dynamic columns, cast first: `percentile(tolong(col), 95)`.
 
 ## Time Formats
 
