@@ -18,7 +18,8 @@
         "./skills/berserk"
       ],
       "agents": [
-        "./agents/explore.md"
+        "./agents/explore.md",
+        "./agents/cluster-admin.md"
       ]
     }
   ]
