@@ -55,7 +55,7 @@ All queries MUST be time-delimited via `--since`/`--until` (e.g., `--since "1h a
 
 When running inside Claude Code, bzrk automatically detects the `CLAUDECODE` env var and enables agent-optimized output:
 
-- **Tree rendering** (`--expand`): nested JSON/dynamic columns are displayed as indented trees with `├─`/`└─` connectors — much more readable than inline JSON
+- **Tree rendering**: nested JSON/dynamic columns are displayed as indented trees with `├─`/`└─` connectors — much more readable than inline JSON
 - **Unlimited terminal width**: no column truncation, all columns visible
 - **No color/borders**: clean output for LLM consumption
 - **TSV result files**: results saved as `.tsv` (tab-separated) instead of CSV
