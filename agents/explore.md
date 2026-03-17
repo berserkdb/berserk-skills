@@ -1,5 +1,5 @@
 ---
-description: Explore and query observability data in Berserk. Use for investigating logs, traces, and metrics — searching errors, exploring schema, debugging production issues, correlating events via traceId/spanId.
+description: Explore and query observability data in Berserk. Use for investigating logs, traces, and metrics — searching errors, exploring schema, debugging production issues, correlating events via trace_id/span_id.
 tools:
   - Bash
   - Read
@@ -18,12 +18,14 @@ curl -fsSL https://go.bzrk.dev | bash
 
 ## Core Principles
 
-1. **Always limit results.** Never run unbounded queries. Use `| take N`, `| tail N`, `| top N by col`, or `| summarize ...`.
-2. **Always time-delimit.** Every query needs `--since`/`--until` or a `where $time` clause.
-3. **Start broad, then narrow.** Use fieldstats and otel-log-stats to understand data shape before writing targeted queries.
-4. **Use background queries for broad searches.** Run wide time ranges with `&`, inspect partial TSV results, and kill early when you find what you need.
-5. **Keep context clean.** Work with TSV result files (`~/.cache/bzrk/history/<trace_id>/PrimaryResult.tsv`) using cut/awk/jq instead of pasting large result sets.
-6. **Always provide `--desc`.** Document why each query is run to tell the story of the investigation.
+1. **Discover tables first.** Always run `.show tables` before querying. Never assume a table called `default` exists — use the actual table name returned by `.show tables`.
+2. **Discover schema before writing queries.** Run `fieldstats with depth=1` to see top-level columns, then `fieldstats resource, attributes with depth=3` to see nested fields. Never assume field names — they vary between Berserk instances.
+3. **Always limit results.** Never run unbounded queries. Use `| take N`, `| tail N`, `| top N by col`, or `| summarize ...`.
+4. **Always time-delimit.** Every query needs `--since`/`--until` or a `where $time` clause.
+5. **Start broad, then narrow.** Use fieldstats and otel-log-stats to understand data shape before writing targeted queries.
+6. **Use background queries for broad searches.** Run wide time ranges with `&`, inspect partial TSV results, and kill early when you find what you need.
+7. **Keep context clean.** Work with TSV result files (`~/.cache/bzrk/history/<trace_id>/PrimaryResult.tsv`) using cut/awk/jq instead of pasting large result sets.
+8. **Always provide `--desc`.** Document why each query is run to tell the story of the investigation.
 
 ## Profile Selection
 
@@ -63,7 +65,7 @@ When running inside Claude Code, bzrk automatically detects the `CLAUDECODE` env
 Agent mode is also auto-detected for Codex, Aider, OpenCode, and Gemini CLI. For other tools, enable it explicitly with `--agent`:
 
 ```bash
-bzrk -P <profile> search "default | take 10" --agent
+bzrk -P <profile> search "<table> | take 10" --agent
 ```
 
 ## Common Options
@@ -91,7 +93,7 @@ Queries over large time ranges can take minutes. **Run them in the background** 
 
 ```bash
 # Run in background — bzrk streams incremental results with progress
-bzrk search "default | where severity_text == 'ERROR' | take 5000" --since "24h ago" &
+bzrk search "<table> | where severity_text == 'ERROR' | take 5000" --since "24h ago" &
 ```
 
 In agent mode, bzrk prints structured progress as results stream in:
@@ -153,13 +155,13 @@ The `$raw` column contains full JSON. Extract it with `cut` and pipe to `jq`:
 tail -n +2 PrimaryResult.tsv | cut -f1 | jq -r '.body'
 
 # Get service names
-tail -n +2 PrimaryResult.tsv | cut -f1 | jq -r '.resource.service.name'
+tail -n +2 PrimaryResult.tsv | cut -f1 | jq -r '.resource.attributes["service.name"]'
 
 # Select specific fields
-tail -n +2 PrimaryResult.tsv | cut -f1 | jq '{body: .body, service: .resource.service.name}'
+tail -n +2 PrimaryResult.tsv | cut -f1 | jq '{body: .body, service: .resource.attributes["service.name"]}'
 
 # Deep nested access
-tail -n +2 PrimaryResult.tsv | cut -f1 | jq -r '.resource.k8s.pod | "\(.name) (\(.ip))"'
+tail -n +2 PrimaryResult.tsv | cut -f1 | jq -r '.resource.attributes | .["k8s.pod.name"] + " (" + .["k8s.pod.ip"] + ")"'
 ```
 
 This approach is critical for large result sets — working with the file avoids flooding the context window while still giving full access to every row and column.
@@ -169,58 +171,126 @@ This approach is critical for large result sets — working with the file avoids
 Use `--csv` for native CSV output when piping to external CSV tools:
 
 ```bash
-bzrk search "default | project \$time, name, traceId | take 50" --csv
+bzrk search "<table> | project \$time, name, trace_id | take 50" --csv
 ```
 
 **Note**: History result files are always saved as TSV (tab-separated), regardless of `--csv` flag. The `--csv` flag only affects stdout.
 
 ## Schema Reference
 
-The `default` table contains logs, traces, and metrics in one bag. Use these patterns to filter:
+Berserk ingests OpenTelemetry data. The exact field names vary between instances — **always use `fieldstats` to discover the actual schema**. The patterns below are typical for OTel data:
 
-| Signal  | Key Field     | Other Fields                                         |
-| ------- | ------------- | ---------------------------------------------------- |
-| Traces  | `$time_end`   | `name`, `spanId`, `traceId`, `parentSpanId`          |
-| Logs    | `body`        | `severity_text` (INFO/WARN/ERROR), `severity_number` |
-| Metrics | `metric_name` | `metric_type`, `sum_value`, `metric_description`     |
+### Signal Type Detection
 
-**Common fields:**
+| Signal  | Key Field      | How to Filter                   |
+| ------- | -------------- | ------------------------------- |
+| Traces  | `$time_end`    | `where isnotnull($time_end)`    |
+| Logs    | `body`         | `where isnotnull(body)`         |
+| Metrics | `metric.name`  | `where isnotnull(metric.name)`  |
 
-- `$time` - timestamp (all signals)
-- `resource.service.name` - service name
-- `traceId`, `spanId` - correlation (traces and logs)
+### Typical Top-Level Fields
 
-**Workflow:** Start with broad queries to see the shape of the data, then use `| project` to select specific columns.
+| Field                      | Type     | Signal  | Description                            |
+| -------------------------- | -------- | ------- | -------------------------------------- |
+| `$time`                    | datetime | all     | Event timestamp                        |
+| `$time_end`                | datetime | traces  | Span end time                          |
+| `$time_ingest`             | datetime | all     | Ingestion timestamp                    |
+| `name`                     | string   | traces  | Span name                              |
+| `trace_id`                 | string   | traces  | Trace ID (hex)                         |
+| `span_id`                  | string   | traces  | Span ID (hex)                          |
+| `parent_span_id`           | string   | traces  | Parent span ID (hex)                   |
+| `kind`                     | string   | traces  | Span kind (CLIENT, SERVER, INTERNAL)   |
+| `duration`                 | timespan | traces  | Span duration                          |
+| `body`                     | dynamic  | logs    | Log message                            |
+| `severity_text`            | string   | logs    | Log level (INFO, WARN, ERROR, etc.)    |
+| `severity_number`          | long     | logs    | Numeric severity                       |
+| `observed_time`            | datetime | logs    | When the log was observed              |
+| `metric.name`              | string   | metrics | Metric name                            |
+| `metric.type`              | string   | metrics | Metric type (gauge, sum, histogram)    |
+| `metric.description`       | string   | metrics | Metric description                     |
+| `metric.unit`              | string   | metrics | Metric unit                            |
+| `value`                    | dynamic  | metrics | Metric value (gauge/sum)               |
+| `sum`                      | real     | metrics | Cumulative sum                         |
+| `count`                    | long     | metrics | Histogram count                        |
+| `min`, `max`               | real     | metrics | Histogram min/max                      |
+| `bucket_counts`            | dynamic  | metrics | Histogram bucket counts                |
+| `explicit_bounds`          | dynamic  | metrics | Histogram bucket boundaries            |
+| `aggregation_temporality`  | string   | metrics | CUMULATIVE or DELTA                    |
+| `start_time`               | datetime | metrics | Metric collection start time           |
+| `resource`                 | dynamic  | all     | Resource attributes (nested)           |
+| `attributes`               | dynamic  | all     | Span/log/metric attributes (nested)    |
+| `scope`                    | dynamic  | all     | Instrumentation scope                  |
 
-**Free text search** is fast - use `* contains 'foo'` or `* has 'bar'` to find records containing text anywhere:
+### Nested Fields Under `resource.attributes`
+
+Resource attributes use OTel semantic conventions. Common paths:
+
+- `resource.attributes['service.name']` — service name
+- `resource.attributes['k8s.namespace.name']` — K8s namespace
+- `resource.attributes['k8s.deployment.name']` — K8s deployment
+- `resource.attributes['k8s.pod.name']` — K8s pod name
+- `resource.attributes['k8s.node.name']` — K8s node
+- `resource.attributes['host.name']` — hostname
+- `resource.attributes['telemetry.sdk.language']` — SDK language
+
+**Note**: Dot notation like `resource.attributes.service.name` also works and resolves to `resource.attributes['service.name']`. The bracket form is preferred as it's unambiguous when keys contain dots.
+
+**Workflow:** Start with `.show tables` to discover tables, then `fieldstats` to discover the actual schema, then write targeted queries.
+
+**Free text search** — use `search` as your first tool when you're not sure where to look. It scans all string columns (including nested dynamic fields) and is ideal as an initial broad query before writing precise filters:
 
 ```kql
-default | where * has 'error' | take 10
-default | where * contains 'timeout' | take 10
+// Basic search — case-insensitive, scans all columns
+<table> | search "connection refused" | take 10
+
+// Without a table — searches ALL tables in the database
+search "connection refused" | take 10
+
+// Search specific tables
+search in (<table1>, <table2>) "connection refused" | take 10
+
+// Boolean combinations — narrow the search
+<table> | search "error" and "ingest" | take 10
+<table> | search "timeout" or "connection refused" | take 10
+
+// Case-sensitive search
+<table> | search kind=case_sensitive "ERROR" | take 10
+
+// Column-scoped search
+<table> | search severity_text == "ERROR" | take 10
+```
+
+`search` prepends a `$table` column and returns all matching rows with a `$raw` column containing the full record. Use short time ranges (`--since "5m ago"`) as it can be expensive.
+
+For targeted filtering once you know the column, `where * has 'foo'` or `where * contains 'bar'` are lighter alternatives:
+
+```kql
+<table> | where * has 'error' | take 10
+<table> | where * contains 'timeout' | take 10
 ```
 
 ## Getting Started Workflow
 
-When exploring an unfamiliar Berserk instance, follow this sequence:
+When exploring an unfamiliar Berserk instance, **always start by discovering what tables exist**:
 
 ```bash
-# 1. See what tables exist
+# 1. REQUIRED FIRST STEP: See what tables exist — never assume table names
 bzrk -P <profile> search ".show tables"
 
-# 2. Get a high-level overview of the default table's schema
-bzrk -P <profile> search "default | fieldstats with depth=1" --since "1h ago"
+# 2. Get a high-level overview of the table's schema (replace <table> with actual name from step 1)
+bzrk -P <profile> search "<table> | fieldstats with depth=1" --since "1h ago"
 
-# 3. Explore nested attributes and resource fields (depth=3 is a good default, adjust as needed)
-bzrk -P <profile> search "default | fieldstats attributes, resource with depth=3" --since "1h ago"
+# 3. Explore nested resource and attribute fields
+bzrk -P <profile> search "<table> | fieldstats resource, attributes with depth=3" --since "1h ago"
 
 # 4. Get a quick summary of your log data — shows which services, severities,
 #    and scopes are most common, ranked by volume
-bzrk -P <profile> search "default | where isnotnull(body) | otel-log-stats severity=severity_text" --since "1h ago"
+bzrk -P <profile> search "<table> | where isnotnull(body) | otel-log-stats severity=severity_text" --since "1h ago"
 ```
 
 **Important**: None of these queries are exhaustive scans — they sample the data and return hints about what's available. Use them to orient yourself, then write targeted queries for the fields and values you discover.
 
-**`.show tables`** lists all available tables. Most Berserk instances have a `default` table containing all signals.
+**`.show tables`** lists all available tables. Use the table name(s) returned in all subsequent queries.
 
 **`fieldstats`** samples records and reports each field's type, cardinality, frequency, and example values (Hint column). Use `with depth=1` for a first pass to see top-level columns, then drill into `attributes` and `resource` with `depth=3` to see the nested structure where most interesting fields live. Low-frequency fields often indicate signal-specific columns (e.g., `body` for logs, `$time_end` for traces). High-cardinality fields with sample hints help identify IDs, timestamps, and free-text content.
 
@@ -235,80 +305,88 @@ The `severity=severity_text` parameter tells otel-log-stats which column holds t
 
 When exploring an unfamiliar dataset, use this systematic approach:
 
-### Step 1: Get a Feel for the Data
+### Step 1: Discover Tables
+
+```bash
+bzrk -P <profile> search ".show tables"
+```
+
+Use the returned table name(s) in all subsequent queries.
+
+### Step 2: Get a Feel for the Data
 
 Start with a shallow overview using `depth=1` to see top-level columns without overwhelming nested detail:
 
 ```bash
-bzrk -P <profile> search "default | fieldstats with depth=1"
+bzrk -P <profile> search "<table> | fieldstats with depth=1"
 ```
 
 This shows all top-level columns with their types. Nested objects/arrays appear as `dynamic` type, indicating there's more structure to explore.
 
-### Step 2: Identify Signal Types (Logs vs Traces vs Metrics)
+### Step 3: Identify Signal Types (Logs vs Traces vs Metrics)
 
-The `default` table mixes logs, metrics, and traces. Use fieldstats to identify what's present by checking key columns:
+Berserk tables can mix logs, metrics, and traces. Use fieldstats to identify what's present by checking key columns:
 
 ```bash
 # Check which signal types are present (look at Frequency column)
-bzrk -P <profile> search "default | fieldstats body, metric_name, \$time_end with depth=1"
+bzrk -P <profile> search "<table> | fieldstats body, metric, \$time_end with depth=1"
 ```
 
-| Signal      | Key Field     | If Frequency > 0        | Additional Fields                           |
-| ----------- | ------------- | ----------------------- | ------------------------------------------- |
-| **Logs**    | `body`        | Logs are present        | `severity_text`, `severity_number`          |
-| **Metrics** | `metric_name` | Metrics are present     | `metric_type`, `gauge_value`, `sum_value`   |
-| **Traces**  | `$time_end`   | Trace spans are present | `name`, `spanId`, `traceId`, `parentSpanId` |
+| Signal      | Key Field     | If Frequency > 0        | Additional Fields                                       |
+| ----------- | ------------- | ----------------------- | ------------------------------------------------------- |
+| **Logs**    | `body`        | Logs are present        | `severity_text`, `severity_number`, `observed_time`     |
+| **Metrics** | `metric`      | Metrics are present     | `value`, `sum`, `count`, `min`, `max`, `start_time`     |
+| **Traces**  | `$time_end`   | Trace spans are present | `name`, `span_id`, `trace_id`, `parent_span_id`, `kind` |
 
-### Step 3: Understand Deployment Environment
+### Step 4: Understand Deployment Environment
 
-Use `resource.k8s` to understand what services and infrastructure exist:
+Use `resource` to understand what services and infrastructure exist:
 
 ```bash
-# Discover Kubernetes deployment context
-bzrk -P <profile> search "default | fieldstats resource.k8s"
+# Discover resource attributes (service names, K8s metadata, etc.)
+bzrk -P <profile> search "<table> | fieldstats resource with depth=3"
 ```
 
-This reveals namespaces, deployments, pods, containers, and other K8s metadata. Common fields:
+This reveals service names, namespaces, deployments, pods, and other metadata. Common paths:
 
-- `resource.k8s.namespace.name` - which namespaces are active
-- `resource.k8s.deployment.name` - what deployments exist
-- `resource.k8s.pod.name` - pod names (often high cardinality)
-- `resource.service.name` - logical service names
+- `resource.attributes['service.name']` — logical service names
+- `resource.attributes['k8s.namespace.name']` — which namespaces are active
+- `resource.attributes['k8s.deployment.name']` — what deployments exist
+- `resource.attributes['k8s.pod.name']` — pod names (often high cardinality)
 
 ```bash
-# See what services exist
-bzrk -P <profile> search "default | summarize count() by tostring(resource.service.name) | order by count_ desc"
+# See what services exist (use tostring for dynamic fields in summarize)
+bzrk -P <profile> search "<table> | summarize count() by tostring(resource.attributes['service.name']) | order by count_ desc"
 ```
 
-### Step 4: Drill Into Specific Signal Types
+### Step 5: Drill Into Specific Signal Types
 
 Once you know what's present, explore signal-specific columns:
 
 ```bash
 # Explore trace attributes (filter to traces only)
-bzrk -P <profile> search "default | where isnotnull(\$time_end) | take 5000 | fieldstats attributes"
+bzrk -P <profile> search "<table> | where isnotnull(\$time_end) | take 5000 | fieldstats attributes"
 
 # Explore log bodies
-bzrk -P <profile> search "default | where isnotnull(body) | take 5000 | fieldstats body, severity_text"
+bzrk -P <profile> search "<table> | where isnotnull(body) | take 5000 | fieldstats body, severity_text"
 
-# Explore HTTP context for traces
-bzrk -P <profile> search "default | where isnotnull(\$time_end) | take 5000 | fieldstats http"
+# Explore metric names
+bzrk -P <profile> search "<table> | where isnotnull(metric.name) | take 5000 | fieldstats metric"
 ```
 
-### Step 5: Get Value Distributions
+### Step 6: Get Value Distributions
 
 For interesting fields, get value distributions:
 
 ```bash
 # What metrics exist?
-bzrk -P <profile> search "default | where isnotnull(metric_name) | summarize count() by metric_name | order by count_ desc | take 30"
+bzrk -P <profile> search "<table> | where isnotnull(metric.name) | summarize count() by metric.name | order by count_ desc | take 30"
 
 # What span names exist?
-bzrk -P <profile> search "default | where isnotnull(\$time_end) | summarize count() by name | order by count_ desc | take 30"
+bzrk -P <profile> search "<table> | where isnotnull(\$time_end) | summarize count() by name | order by count_ desc | take 30"
 
 # What services are logging?
-bzrk -P <profile> search "default | where isnotnull(body) | summarize count() by tostring(resource.service.name) | order by count_ desc"
+bzrk -P <profile> search "<table> | where isnotnull(body) | summarize count() by tostring(resource.attributes['service.name']) | order by count_ desc"
 ```
 
 ## Schema Exploration with fieldstats
@@ -317,28 +395,29 @@ Use `| fieldstats` to discover the structure and value distribution of columns, 
 
 ```bash
 # Explore the structure of a dynamic column (e.g., attributes, resource)
-bzrk -P <profile> search "default | fieldstats attributes"
+bzrk -P <profile> search "<table> | fieldstats attributes"
 
 # Analyze multiple columns at once
-bzrk -P <profile> search "default | fieldstats resource, attributes"
+bzrk -P <profile> search "<table> | fieldstats resource, attributes"
 
 # Explore all columns (no arguments)
-bzrk -P <profile> search "default | fieldstats"
+bzrk -P <profile> search "<table> | fieldstats"
 
 # Use 'with limit=N' to control sample size (default: 1000)
-bzrk -P <profile> search "default | fieldstats _ with limit=10000"
+bzrk -P <profile> search "<table> | fieldstats _ with limit=10000"
 
 # Use 'with depth=N' to limit nesting depth (nested objects/arrays reported as dynamic)
-bzrk -P <profile> search "default | fieldstats resource with depth=1"
+bzrk -P <profile> search "<table> | fieldstats resource with depth=1"
 
 # Combine limit and depth (order doesn't matter)
-bzrk -P <profile> search "default | fieldstats attributes with limit=5000 depth=2"
+bzrk -P <profile> search "<table> | fieldstats attributes with limit=5000 depth=2"
 
 # Works on typed columns too
-bzrk -P <profile> search "default | fieldstats \$time"
+bzrk -P <profile> search "<table> | fieldstats \$time"
 
 # Explore nested path directly
-bzrk -P <profile> search "default | fieldstats resource.k8s"
+bzrk -P <profile> search "<table> | fieldstats resource.attributes.k8s"
+# Note: fieldstats uses dot paths for AttributePath output regardless of notation
 ```
 
 **Syntax**:
@@ -353,7 +432,7 @@ bzrk -P <profile> search "default | fieldstats resource.k8s"
 
 | Column        | Description                                            |
 | ------------- | ------------------------------------------------------ |
-| AttributePath | Dot-separated path (e.g., `resource.k8s.namespace`)    |
+| AttributePath | Dot-separated path (e.g., `resource.attributes.k8s`)   |
 | Type          | KQL type (string, long, real, datetime, dynamic)       |
 | Cardinality   | Approximate distinct value count                       |
 | Frequency     | How often the field appears (1.0 = always, 0.5 = half) |
@@ -401,15 +480,15 @@ Group by hash, then extract the template and a drill-down regex:
 
 ```bash
 # Top 20 log patterns with count and regex for drilling in
-bzrk -P <profile> search "default | where isnotnull(body) \
+bzrk -P <profile> search "<table> | where isnotnull(body) \
   | summarize sample=take_any(tostring(body)), count=count() by hash=log_template_hash(tostring(body)) \
   | extend pattern=extract_log_template(sample), regex=log_template_regex(sample) \
   | project pattern, count, regex \
   | top 20 by count desc" --since "1h ago"
 
 # Error patterns for a specific service
-bzrk -P <profile> search "default | where isnotnull(body) | where severity_text == 'ERROR' \
-  | where resource.service.name == 'my-service' \
+bzrk -P <profile> search "<table> | where isnotnull(body) | where severity_text == 'ERROR' \
+  | where resource.attributes['service.name'] == 'my-service' \
   | summarize sample=take_any(tostring(body)), count=count() by hash=log_template_hash(tostring(body)) \
   | extend pattern=extract_log_template(sample), regex=log_template_regex(sample) \
   | project pattern, count, regex \
@@ -422,38 +501,38 @@ The `regex` column is useful for drilling into a specific pattern — copy the r
 
 ```bash
 # Traces - spans from a service
-bzrk -P <profile> search "default | where isnotnull(\$time_end) | where resource.service.name == 'query-service' | project name, \$time, spanId, traceId | take 20"
+bzrk -P <profile> search "<table> | where isnotnull(\$time_end) | where resource.attributes['service.name'] == 'my-service' | project name, \$time, span_id, trace_id, resource.attributes['service.name'] | take 20"
 
 # Logs - errors from any service
-bzrk -P <profile> search "default | where isnotnull(body) | where severity_text == 'ERROR' | project body, severity_text, \$time, resource.service.name, traceId | take 20"
+bzrk -P <profile> search "<table> | where isnotnull(body) | where severity_text == 'ERROR' | project body, severity_text, \$time, resource.attributes['service.name'], trace_id | take 20"
 
 # Metrics - list available metrics
-bzrk -P <profile> search "default | where isnotnull(metric_name) | summarize count() by metric_name | order by count_ desc | take 20"
+bzrk -P <profile> search "<table> | where isnotnull(metric.name) | summarize count() by metric.name | order by count_ desc | take 20"
 
 # Exploration - raw JSON to see all fields
-bzrk -P <profile> search "default | take 3" --json
+bzrk -P <profile> search "<table> | take 3" --json
 
-# Filter by time in query
-bzrk -P <profile> search "default | where \$time > datetime(2024-01-07T08:38:00Z) and \$time < datetime(2024-01-07T08:39:00Z)"
+# Filter by absolute time range
+bzrk -P <profile> search "<table> | take 100" --since "2024-01-07T08:38:00" --until "2024-01-07T08:39:00"
 
-# Access nested attributes (dots work directly)
-bzrk -P <profile> search "default | where k8s.namespace.name == 'production' | take 10" --since "1h ago"
+# Access nested attributes (dots work in where clauses)
+bzrk -P <profile> search "<table> | where resource.attributes['k8s.namespace.name'] == 'production' | take 10" --since "1h ago"
 ```
 
 ## Debugging Workflows
 
 ### From an error message
 
-1. Extract a unique substring from the message
-2. Use free text search to find the full record with context attributes
-3. Use `traceId`/`spanId` from that record to find related events
+1. Use `search` with a unique substring to find matching records across all fields
+2. Inspect the results to find `trace_id`/`span_id` and other context
+3. Use targeted queries to find all related events
 
 ```bash
-# Step 1: Find the log line (use JSON to see all context)
-bzrk -P <profile> search "default | where * has 'connection refused' | take 5" --json --since "1h ago"
+# Step 1: Broad search for the error (searches all columns, use short time range)
+bzrk -P <profile> search "<table> | search \"connection refused\" | take 5" --since "15m ago"
 
-# Step 2: Once you have traceId, find all related spans/logs
-bzrk -P <profile> search "default | where traceId == '87aa441535e88589cac931bf3ea741cd' | project name, body, \$time, spanId, resource.service.name"
+# Step 2: Once you have trace_id, find all related spans/logs
+bzrk -P <profile> search "<table> | where trace_id == '87aa441535e88589cac931bf3ea741cd' | project name, body, \$time, span_id, resource.attributes['service.name']"
 ```
 
 ### Around a timestamp
@@ -463,18 +542,28 @@ bzrk -P <profile> search "default | where traceId == '87aa441535e88589cac931bf3e
 3. Filter by service, severity, or other fields
 
 ```bash
-bzrk -P <profile> search "default | where \$time between(datetime(2024-01-07T08:38:50Z) .. datetime(2024-01-07T08:39:10Z)) | where severity_text == 'ERROR' | project \$time, body, resource.service.name" --since "2024-01-07" --until "2024-01-08"
+bzrk -P <profile> search "<table> | where severity_text == 'ERROR' | project \$time, body, resource.attributes['service.name']" --since "2024-01-07T08:38:50" --until "2024-01-07T08:39:10"
 ```
 
 ### Service health check
 
-1. List services: `default | summarize count() by tostring(resource.service.name) | order by count_ desc`
-2. Check error rates: `default | where severity_text == 'ERROR' | summarize count() by tostring(resource.service.name) | order by count_ desc`
-3. Find error patterns: `default | where severity_text == 'ERROR' | where resource.service.name == '<svc>' | summarize count() by extract_log_template(tostring(body)) | order by count_ desc | take 20`
+1. List services: `<table> | summarize count() by tostring(resource.attributes['service.name']) | order by count_ desc`
+2. Check error rates: `<table> | where severity_text == 'ERROR' | summarize count() by tostring(resource.attributes['service.name']) | order by count_ desc`
+3. Find error patterns: `<table> | where severity_text == 'ERROR' | where resource.attributes['service.name'] == '<svc>' | summarize count() by extract_log_template(tostring(body)) | order by count_ desc | take 20`
 
-## Known Limitations
+## Known Issues
 
-`distinct` and `union` (of non-datatable sources) are not yet supported. For `percentile()` on dynamic columns, cast first: `percentile(tolong(col), 95)`.
+> **Remove this section once fieldstats/otel-log-stats use bracket notation for dotted keys.**
+
+### fieldstats and otel-log-stats: dotted key ambiguity
+
+`fieldstats` and `otel-log-stats` report attribute paths using dots, e.g. `resource.attributes.service.name`. However, OTel semantic conventions use dots *within* key names — `service.name` is a **single flat key**, not a nested `service` object with a `name` property.
+
+There is currently no way to tell from the output alone whether a path like `resource.attributes.service.name` means:
+- Flat key `"service.name"` → access with `resource.attributes['service.name']`
+- Nested object → access with `resource.attributes.service.name`
+
+**Workaround**: When you see dotted paths under `resource.attributes` or `attributes`, assume OTel convention (flat dotted keys) and use bracket notation: `resource.attributes['service.name']`. If a query returns null, check the raw JSON (`| take 1 --json`) to verify the actual structure.
 
 ## Time Formats
 
