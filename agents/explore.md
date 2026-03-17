@@ -182,44 +182,44 @@ Berserk ingests OpenTelemetry data. The exact field names vary between instances
 
 ### Signal Type Detection
 
-| Signal  | Key Field      | How to Filter                   |
-| ------- | -------------- | ------------------------------- |
-| Traces  | `$time_end`    | `where isnotnull($time_end)`    |
-| Logs    | `body`         | `where isnotnull(body)`         |
-| Metrics | `metric.name`  | `where isnotnull(metric.name)`  |
+| Signal  | Key Field     | How to Filter                  |
+| ------- | ------------- | ------------------------------ |
+| Traces  | `$time_end`   | `where isnotnull($time_end)`   |
+| Logs    | `body`        | `where isnotnull(body)`        |
+| Metrics | `metric.name` | `where isnotnull(metric.name)` |
 
 ### Typical Top-Level Fields
 
-| Field                      | Type     | Signal  | Description                            |
-| -------------------------- | -------- | ------- | -------------------------------------- |
-| `$time`                    | datetime | all     | Event timestamp                        |
-| `$time_end`                | datetime | traces  | Span end time                          |
-| `$time_ingest`             | datetime | all     | Ingestion timestamp                    |
-| `name`                     | string   | traces  | Span name                              |
-| `trace_id`                 | string   | traces  | Trace ID (hex)                         |
-| `span_id`                  | string   | traces  | Span ID (hex)                          |
-| `parent_span_id`           | string   | traces  | Parent span ID (hex)                   |
-| `kind`                     | string   | traces  | Span kind (CLIENT, SERVER, INTERNAL)   |
-| `duration`                 | timespan | traces  | Span duration                          |
-| `body`                     | dynamic  | logs    | Log message                            |
-| `severity_text`            | string   | logs    | Log level (INFO, WARN, ERROR, etc.)    |
-| `severity_number`          | long     | logs    | Numeric severity                       |
-| `observed_time`            | datetime | logs    | When the log was observed              |
-| `metric.name`              | string   | metrics | Metric name                            |
-| `metric.type`              | string   | metrics | Metric type (gauge, sum, histogram)    |
-| `metric.description`       | string   | metrics | Metric description                     |
-| `metric.unit`              | string   | metrics | Metric unit                            |
-| `value`                    | dynamic  | metrics | Metric value (gauge/sum)               |
-| `sum`                      | real     | metrics | Cumulative sum                         |
-| `count`                    | long     | metrics | Histogram count                        |
-| `min`, `max`               | real     | metrics | Histogram min/max                      |
-| `bucket_counts`            | dynamic  | metrics | Histogram bucket counts                |
-| `explicit_bounds`          | dynamic  | metrics | Histogram bucket boundaries            |
-| `aggregation_temporality`  | string   | metrics | CUMULATIVE or DELTA                    |
-| `start_time`               | datetime | metrics | Metric collection start time           |
-| `resource`                 | dynamic  | all     | Resource attributes (nested)           |
-| `attributes`               | dynamic  | all     | Span/log/metric attributes (nested)    |
-| `scope`                    | dynamic  | all     | Instrumentation scope                  |
+| Field                     | Type     | Signal  | Description                          |
+| ------------------------- | -------- | ------- | ------------------------------------ |
+| `$time`                   | datetime | all     | Event timestamp                      |
+| `$time_end`               | datetime | traces  | Span end time                        |
+| `$time_ingest`            | datetime | all     | Ingestion timestamp                  |
+| `name`                    | string   | traces  | Span name                            |
+| `trace_id`                | string   | traces  | Trace ID (hex)                       |
+| `span_id`                 | string   | traces  | Span ID (hex)                        |
+| `parent_span_id`          | string   | traces  | Parent span ID (hex)                 |
+| `kind`                    | string   | traces  | Span kind (CLIENT, SERVER, INTERNAL) |
+| `duration`                | timespan | traces  | Span duration                        |
+| `body`                    | dynamic  | logs    | Log message                          |
+| `severity_text`           | string   | logs    | Log level (INFO, WARN, ERROR, etc.)  |
+| `severity_number`         | long     | logs    | Numeric severity                     |
+| `observed_time`           | datetime | logs    | When the log was observed            |
+| `metric.name`             | string   | metrics | Metric name                          |
+| `metric.type`             | string   | metrics | Metric type (gauge, sum, histogram)  |
+| `metric.description`      | string   | metrics | Metric description                   |
+| `metric.unit`             | string   | metrics | Metric unit                          |
+| `value`                   | dynamic  | metrics | Metric value (gauge/sum)             |
+| `sum`                     | real     | metrics | Cumulative sum                       |
+| `count`                   | long     | metrics | Histogram count                      |
+| `min`, `max`              | real     | metrics | Histogram min/max                    |
+| `bucket_counts`           | dynamic  | metrics | Histogram bucket counts              |
+| `explicit_bounds`         | dynamic  | metrics | Histogram bucket boundaries          |
+| `aggregation_temporality` | string   | metrics | CUMULATIVE or DELTA                  |
+| `start_time`              | datetime | metrics | Metric collection start time         |
+| `resource`                | dynamic  | all     | Resource attributes (nested)         |
+| `attributes`              | dynamic  | all     | Span/log/metric attributes (nested)  |
+| `scope`                   | dynamic  | all     | Instrumentation scope                |
 
 ### Nested Fields Under `resource.attributes`
 
@@ -285,7 +285,7 @@ bzrk -P <profile> search "<table> | fieldstats resource, attributes with depth=3
 
 # 4. Get a quick summary of your log data — shows which services, severities,
 #    and scopes are most common, ranked by volume
-bzrk -P <profile> search "<table> | where isnotnull(body) | otel-log-stats severity=severity_text" --since "1h ago"
+bzrk -P <profile> search "<table> | where isnotnull(body) | otel-log-stats attributes, resource.attributes severity=severity_number" --since "1h ago"
 ```
 
 **Important**: None of these queries are exhaustive scans — they sample the data and return hints about what's available. Use them to orient yourself, then write targeted queries for the fields and values you discover.
@@ -299,7 +299,7 @@ bzrk -P <profile> search "<table> | where isnotnull(body) | otel-log-stats sever
 1. **Schema table** — fieldstats-style analysis of log fields (AttributePath, Type, Cardinality, Frequency, Hint values)
 2. **Top values table** — ranked breakdown of the most common values for key attributes (service names, severities, scopes, log message patterns), each with occurrence counts. This immediately tells you which services are noisiest, what error patterns dominate, and where to focus investigation.
 
-The `severity=severity_text` parameter tells otel-log-stats which column holds the log level. Adjust if your instance uses a different field name.
+The `severity=severity_number` parameter tells otel-log-stats which column holds the log level. Adjust if your instance uses a different field name.
 
 ## Data Analysis Workflow
 
@@ -332,11 +332,11 @@ Berserk tables can mix logs, metrics, and traces. Use fieldstats to identify wha
 bzrk -P <profile> search "<table> | fieldstats body, metric, \$time_end with depth=1"
 ```
 
-| Signal      | Key Field     | If Frequency > 0        | Additional Fields                                       |
-| ----------- | ------------- | ----------------------- | ------------------------------------------------------- |
-| **Logs**    | `body`        | Logs are present        | `severity_text`, `severity_number`, `observed_time`     |
-| **Metrics** | `metric`      | Metrics are present     | `value`, `sum`, `count`, `min`, `max`, `start_time`     |
-| **Traces**  | `$time_end`   | Trace spans are present | `name`, `span_id`, `trace_id`, `parent_span_id`, `kind` |
+| Signal      | Key Field   | If Frequency > 0        | Additional Fields                                       |
+| ----------- | ----------- | ----------------------- | ------------------------------------------------------- |
+| **Logs**    | `body`      | Logs are present        | `severity_text`, `severity_number`, `observed_time`     |
+| **Metrics** | `metric`    | Metrics are present     | `value`, `sum`, `count`, `min`, `max`, `start_time`     |
+| **Traces**  | `$time_end` | Trace spans are present | `name`, `span_id`, `trace_id`, `parent_span_id`, `kind` |
 
 ### Step 4: Understand Deployment Environment
 
@@ -557,9 +557,10 @@ bzrk -P <profile> search "<table> | where severity_text == 'ERROR' | project \$t
 
 ### fieldstats and otel-log-stats: dotted key ambiguity
 
-`fieldstats` and `otel-log-stats` report attribute paths using dots, e.g. `resource.attributes.service.name`. However, OTel semantic conventions use dots *within* key names — `service.name` is a **single flat key**, not a nested `service` object with a `name` property.
+`fieldstats` and `otel-log-stats` report attribute paths using dots, e.g. `resource.attributes.service.name`. However, OTel semantic conventions use dots _within_ key names — `service.name` is a **single flat key**, not a nested `service` object with a `name` property.
 
 There is currently no way to tell from the output alone whether a path like `resource.attributes.service.name` means:
+
 - Flat key `"service.name"` → access with `resource.attributes['service.name']`
 - Nested object → access with `resource.attributes.service.name`
 
