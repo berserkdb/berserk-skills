@@ -303,91 +303,44 @@ The `severity=severity_number` parameter tells otel-log-stats which column holds
 
 ## Data Analysis Workflow
 
-When exploring an unfamiliar dataset, use this systematic approach:
+When exploring an unfamiliar dataset, follow these steps. **Skip any step where you already have the answer** from prior queries or user context.
 
-### Step 1: Discover Tables
+### Step 1: Discover Tables and Schema
 
 ```bash
+# Find tables
 bzrk -P <profile> search ".show tables"
+
+# Get schema overview — signal types, top-level fields, nested structure
+bzrk -P <profile> search "<table> | fieldstats with depth=1" --since "1h ago"
 ```
 
-Use the returned table name(s) in all subsequent queries.
+From fieldstats output, identify which signals are present:
 
-### Step 2: Get a Feel for the Data
+| Signal      | Key Field   | If Frequency > 0        |
+| ----------- | ----------- | ----------------------- |
+| **Logs**    | `body`      | Logs are present        |
+| **Metrics** | `metric`    | Metrics are present     |
+| **Traces**  | `$time_end` | Trace spans are present |
 
-Start with a shallow overview using `depth=1` to see top-level columns without overwhelming nested detail:
+### Step 2: Get Signal-Specific Overview
+
+Pick the right single query based on what signal you're investigating:
 
 ```bash
-bzrk -P <profile> search "<table> | fieldstats with depth=1"
+# For logs — gives schema + top values (services, severities, patterns) in one query
+bzrk -P <profile> search "<table> | where isnotnull(body) | otel-log-stats attributes, resource.attributes severity=severity_number" --since "1h ago"
+
+# For traces — span names and services
+bzrk -P <profile> search "<table> | where isnotnull(\$time_end) | summarize count() by name, tostring(resource.attributes['service.name']) | order by count_ desc | take 30" --since "1h ago"
+
+# For metrics — available metric names
+bzrk -P <profile> search "<table> | where isnotnull(metric.name) | summarize count() by metric.name, metric.type | order by count_ desc | take 30" --since "1h ago"
 ```
 
-This shows all top-level columns with their types. Nested objects/arrays appear as `dynamic` type, indicating there's more structure to explore.
+### Step 3: Targeted Query
 
-### Step 3: Identify Signal Types (Logs vs Traces vs Metrics)
-
-Berserk tables can mix logs, metrics, and traces. Use fieldstats to identify what's present by checking key columns:
-
-```bash
-# Check which signal types are present (look at Frequency column)
-bzrk -P <profile> search "<table> | fieldstats body, metric, \$time_end with depth=1"
-```
-
-| Signal      | Key Field   | If Frequency > 0        | Additional Fields                                       |
-| ----------- | ----------- | ----------------------- | ------------------------------------------------------- |
-| **Logs**    | `body`      | Logs are present        | `severity_text`, `severity_number`, `observed_time`     |
-| **Metrics** | `metric`    | Metrics are present     | `value`, `sum`, `count`, `min`, `max`, `start_time`     |
-| **Traces**  | `$time_end` | Trace spans are present | `name`, `span_id`, `trace_id`, `parent_span_id`, `kind` |
-
-### Step 4: Understand Deployment Environment
-
-Use `resource` to understand what services and infrastructure exist:
-
-```bash
-# Discover resource attributes (service names, K8s metadata, etc.)
-bzrk -P <profile> search "<table> | fieldstats resource with depth=3"
-```
-
-This reveals service names, namespaces, deployments, pods, and other metadata. Common paths:
-
-- `resource.attributes['service.name']` — logical service names
-- `resource.attributes['k8s.namespace.name']` — which namespaces are active
-- `resource.attributes['k8s.deployment.name']` — what deployments exist
-- `resource.attributes['k8s.pod.name']` — pod names (often high cardinality)
-
-```bash
-# See what services exist (use tostring for dynamic fields in summarize)
-bzrk -P <profile> search "<table> | summarize count() by tostring(resource.attributes['service.name']) | order by count_ desc"
-```
-
-### Step 5: Drill Into Specific Signal Types
-
-Once you know what's present, explore signal-specific columns:
-
-```bash
-# Explore trace attributes (filter to traces only)
-bzrk -P <profile> search "<table> | where isnotnull(\$time_end) | take 5000 | fieldstats attributes"
-
-# Explore log bodies
-bzrk -P <profile> search "<table> | where isnotnull(body) | take 5000 | fieldstats body, severity_text"
-
-# Explore metric names
-bzrk -P <profile> search "<table> | where isnotnull(metric.name) | take 5000 | fieldstats metric"
-```
-
-### Step 6: Get Value Distributions
-
-For interesting fields, get value distributions:
-
-```bash
-# What metrics exist?
-bzrk -P <profile> search "<table> | where isnotnull(metric.name) | summarize count() by metric.name | order by count_ desc | take 30"
-
-# What span names exist?
-bzrk -P <profile> search "<table> | where isnotnull(\$time_end) | summarize count() by name | order by count_ desc | take 30"
-
-# What services are logging?
-bzrk -P <profile> search "<table> | where isnotnull(body) | summarize count() by tostring(resource.attributes['service.name']) | order by count_ desc"
-```
+Write your investigation query based on what Steps 1-2 revealed. See Example Queries and Debugging Workflows below.
 
 ## Schema Exploration with fieldstats
 
