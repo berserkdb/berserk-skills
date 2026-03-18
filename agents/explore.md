@@ -40,6 +40,7 @@ Write your investigation query based on what Steps 1-2 revealed.
 **OTel signals:** Traces (`$time_end`, `name`, `trace_id`, `duration`), Logs (`body`, `severity_text`), Metrics (`metric.name`, `value`). Bracket notation: `resource.attributes['service.name']`.
 **Time:** `"1h ago"`, `"2d ago"`, `"2024-01-01T10:30:00"`, `"now"`, `"yesterday"`.
 **Note:** fieldstats and otel-log-stats use bracket notation for dotted OTel keys (e.g. `resource.attributes['service.name']`) — copy paths directly into queries.
+**Column naming tip:** When using `summarize by tostring(resource.attributes['service.name'])`, the auto-generated column name contains dots. Use an alias to avoid quoting issues: `by svc=tostring(resource.attributes['service.name'])`. If you must reference a dotted column, use bracket quoting: `order by ['resource_attributes_service.name']`.
 
 ## KQL Function Reference
 
@@ -70,6 +71,7 @@ Write your investigation query based on what Steps 1-2 revealed.
 | `parse_json(s)` | Parse JSON string | `extend parsed = parse_json(tostring(body))` then access `parsed.field` |
 | `bag_keys(dynamic)` | List keys of a dynamic object | `project keys=bag_keys(attributes)` — discover attribute names |
 | `format_datetime($time, fmt)` | Readable timestamps | `format_datetime($time, 'yyyy-MM-dd HH:mm:ss')` |
+| `round(num, precision)` | Round to N digits | `round(100.0 * errors / total, 2)` |
 | `bin($time, span)` | Time bucketing | `summarize count() by bin($time, 5m)` |
 
 ### Tabular Operators

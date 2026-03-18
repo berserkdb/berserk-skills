@@ -74,7 +74,7 @@ bzrk -P <profile> search "default | where isnotnull(body) | where severity_text 
 bzrk -P <profile> search "default | where trace_id == '<trace_id>' | project name, \$time, \$time_end, duration, span_id, parent_span_id, resource.attributes['service.name'], kind, body, severity_text | order by \$time asc" --desc "full trace for root cause"
 
 # Check for deployment changes — new versions around incident start time
-bzrk -P <profile> search "default | summarize versions=make_set(tostring(resource.attributes['service.version'])), earliest=min(\$time) by tostring(resource.attributes['service.name']) | order by resource_attributes_service.name asc" --since "2h ago" --desc "service versions deployed"
+bzrk -P <profile> search "default | summarize versions=make_set(tostring(resource.attributes['service.version'])), earliest=min(\$time) by svc=tostring(resource.attributes['service.name']) | order by svc asc" --since "2h ago" --desc "service versions deployed"
 ```
 
 ### Phase 5: Summarize findings
