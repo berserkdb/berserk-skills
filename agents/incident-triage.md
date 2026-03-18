@@ -45,22 +45,16 @@ You must distinguish between **services actually down** vs **telemetry pipeline 
 ```
 1. List ALL services with telemetry before and after the gap (summarize count, min/max time by service.name)
 2. For each service: when did it last emit before the gap? When did it first emit after?
-3. Sort services by "last emit before gap" — which went silent FIRST? That's your primary suspect.
-   If a pipeline/infrastructure service went silent BEFORE app services, the pipeline is the likely cause.
-   If app services went silent BEFORE the pipeline, apps are the likely cause.
-4. For the primary suspect: compare instance IDs before/after — did the process survive or get replaced?
-   If it survived (same ID) but was silent during the gap, it was FROZEN — not healthy.
-   Do NOT interpret "same instance = was running fine." A frozen/deadlocked process keeps its ID.
-5. For the primary suspect: look at its last operations before the gap. What was the last thing it did?
+3. Which service went silent FIRST? That's your primary suspect.
+4. Compare instance IDs before/after for suspect services — did the process survive or get replaced?
+5. Look at the suspect service's last healthy operations — what was it doing right before it went silent?
 6. Check kubectl if available — pod events, restarts, deployments around the gap
-7. Form your hypothesis based on steps 3-6. State explicitly whether you believe services were
-   down or the pipeline failed, and what evidence supports each possibility.
+7. Only THEN form your hypothesis about what happened
 ```
 
 **Common pitfalls:**
 
 - Concluding "services were down" because you see no app service telemetry — you haven't checked the pipeline yet
-- A surviving process (same instance ID) that produced zero telemetry during the gap was NOT healthy — it was frozen or deadlocked. Do not use process survival as evidence of health
 - Ignoring infrastructure services in your investigation — they are part of the data path
 - Treating backlog flush as a definitive test — its absence is inconclusive
 
