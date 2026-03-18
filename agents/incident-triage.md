@@ -67,6 +67,15 @@ bzrk -P <profile> search "default | where isnotnull(body) | where severity_text 
 bzrk -P <profile> search "default | where isnotnull(body) | where severity_text == 'ERROR' | where isnotnull(trace_id) | summarize error_count=count(), traces=dcount(trace_id) by tostring(resource.attributes['service.name']) | order by error_count desc" --since "1h ago" --desc "error-to-trace correlation"
 ```
 
+### Phase 2b: Check inter-service communication
+
+If errors are isolated to specific services, check whether the failure cascades through service-to-service calls. CLIENT/SERVER span pairs reveal which inter-service calls are failing.
+
+```bash
+# Inter-service call errors — CLIENT spans with errors show which outbound calls are failing
+bzrk -P <profile> search "default | where isnotnull(\$time_end) | where kind == 'CLIENT' or kind == 'SERVER' | where attributes['error'] == true or severity_text == 'ERROR' | summarize errors=count() by name, tostring(resource.attributes['service.name']), kind | order by errors desc | take 20" --since "1h ago" --desc "failing inter-service calls"
+```
+
 ### Phase 3: Check latency impact
 
 Determine if the incident affects request latency.
