@@ -551,6 +551,25 @@ bzrk -P <profile> search "<table> | where severity_text == 'ERROR' | project \$t
 2. Check error rates: `<table> | where severity_text == 'ERROR' | summarize count() by tostring(resource.attributes['service.name']) | order by count_ desc`
 3. Find error patterns: `<table> | where severity_text == 'ERROR' | where resource.attributes['service.name'] == '<svc>' | summarize count() by extract_log_template(tostring(body)) | order by count_ desc | take 20`
 
+## Raw Field Resolution
+
+Berserk uses **permissive mode** by default: bare field names automatically resolve to `$raw` properties via auto-projection. You rarely need explicit `$raw` access.
+
+- `where level == "INFO"` works — it auto-resolves to `$raw.level`. **Do not** write `where $raw.level == "INFO"`.
+- `where resource.attributes['service.name'] == 'api'` works — no `$raw` prefix needed.
+- Avoid unnecessary `$raw` access in queries. Only use `$raw` when extracting the full JSON blob from TSV files via `jq`.
+
+**Type hints with `annotate`:** Auto-projected fields have type `dynamic`. When doing arithmetic on them, use the `annotate` operator to declare types:
+
+```kql
+<table>
+| annotate response_time:real, status_code:int
+| where status_code >= 400
+| summarize avg(response_time) by bin($time, 5m)
+```
+
+Without `annotate`, you'd need explicit `toreal()`/`toint()` casts in every expression.
+
 ## Known Issues
 
 > **Remove this section once fieldstats/otel-log-stats use bracket notation for dotted keys.**
