@@ -15,7 +15,16 @@ description: |
 
 # Berserk
 
-**For investigation tasks** (searching errors, debugging issues, exploring data, running queries), delegate to the `berserk:explore` agent using the Agent tool. It runs autonomously with full bzrk/KQL knowledge and returns a summary.
+**Route investigation tasks to the right specialist agent:**
+
+| Task | Agent | When to use |
+|------|-------|-------------|
+| Log investigation | `berserk:otel-log` | Searching errors, log patterns, severity analysis, service log volume |
+| Trace investigation | `berserk:otel-trace` | Span analysis, latency debugging, trace correlation, service dependencies |
+| Metrics investigation | `berserk:otel-metric` | Metric discovery, time-series queries, histogram analysis, spike detection |
+| General exploration | `berserk:explore` | Schema discovery, unfamiliar instances, mixed-signal queries, fieldstats |
+
+Use `berserk:explore` when the signal type is unknown or the task spans multiple signal types. Use the specialized agents when the user's intent clearly maps to logs, traces, or metrics.
 
 **For inline help** (KQL syntax questions, bzrk flag reference), use the quick reference below.
 
