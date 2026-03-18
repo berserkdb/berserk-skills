@@ -26,9 +26,11 @@ bzrk -P <profile> search "default | where isnotnull(body) | where severity_text 
 bzrk -P <profile> search "default | where isnotnull(body) | summarize total=count(), errors=countif(severity_text == 'ERROR' or severity_text == 'error') by tostring(resource.attributes['service.name']) | extend error_pct=round(100.0 * errors / total, 2) | order by error_pct desc" --since "1h ago" --desc "error percentage by service"
 ```
 
-### Phase 1b: Diagnose telemetry gaps
+### Phase 1b: Diagnose telemetry gaps (MANDATORY before proceeding)
 
-If Phase 1 reveals a period with zero or near-zero telemetry across multiple services, you must distinguish between **services actually down** vs **telemetry pipeline broken** (collection/ingestion failure). Do NOT assume services were down just because telemetry is absent.
+If Phase 1 reveals a period with zero or near-zero telemetry across multiple services, you MUST complete this entire phase before moving to Phase 2. Do NOT skip ahead to per-service error analysis — a telemetry gap affects all downstream analysis and you will draw wrong conclusions if you don't first determine whether services were actually down or the telemetry pipeline failed.
+
+You must distinguish between **services actually down** vs **telemetry pipeline broken** (collection/ingestion failure). Do NOT assume services were down just because telemetry is absent — this is the most common misdiagnosis in observability.
 
 **Key diagnostic steps:**
 
@@ -48,11 +50,22 @@ bzrk -P <profile> search "default | where resource.attributes['service.name'] ha
 bzrk -P <profile> search "default | where isnotnull(body) | where \$time >= todatetime('<gap_end>') | project \$time, body, resource.attributes['service.name'] | take 20 | order by \$time asc" --desc "first logs after gap — check for backlog flush pattern"
 ```
 
+5. **Compare per-service instance IDs before and after the gap** — query `resource.attributes['service.instance.id']` for each service. If a service has the same instance ID before and after, the process was never restarted — it either froze/deadlocked or was healthy the whole time. This is critical for infrastructure services (collectors, ingesters) — a collector with the same instance that produced no telemetry during the gap was likely deadlocked.
+6. **Check the last operations from infrastructure services before the gap** — look at the final spans from collectors/ingesters. Were they healthy? Zero errors in the last export operation followed by sudden silence suggests a freeze, not a graceful shutdown.
+
+```bash
+# Compare instance IDs before and after the gap for all services
+bzrk -P <profile> search "default | summarize instances=make_set(tostring(resource.attributes['service.instance.id'])) by svc=tostring(resource.attributes['service.name'])" --since "<before_gap>" --until "<gap_start>" --desc "instance IDs before gap"
+bzrk -P <profile> search "default | summarize instances=make_set(tostring(resource.attributes['service.instance.id'])) by svc=tostring(resource.attributes['service.name'])" --since "<gap_end>" --until "<after_gap>" --desc "instance IDs after gap"
+```
+
 **Decision framework:**
 
-- Zero telemetry from ALL sources + no collector signals → **ambiguous** — explicitly state both hypotheses (services down vs pipeline broken) and recommend checking Kubernetes pod history or external monitoring
-- Zero telemetry from ALL sources + collector was alive → **services were down**
-- Zero telemetry from ALL sources + backlog flush on recovery → **pipeline was broken**, services were up
+- Same instance IDs before and after gap for infrastructure services (collector, ingester) → **pipeline froze/deadlocked** — processes stayed alive but stopped processing. Investigate exporter configuration and downstream service health
+- Different instance IDs after gap → processes were **restarted** — check kubectl/deployment history for why
+- Zero telemetry from ALL sources + cannot determine instance continuity → **ambiguous** — state both hypotheses and recommend checking Kubernetes pod history or external monitoring
+- Backlog flush on recovery (old timestamps arriving late) → **pipeline was broken** but had buffering
+- Absence of backlog flush → **inconclusive** — does NOT prove services were down. If the pipeline froze upstream of any buffering layer, nothing was buffered and there's nothing to flush
 - Some services have telemetry, others don't → **partial outage**, investigate per-service
 
 ### Phase 2: Identify error patterns

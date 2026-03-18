@@ -27,7 +27,7 @@ echo ">>> Spawning triage agent (this takes 2-5 minutes)..."
 
 # Run the triage agent non-interactively with the incident prompt
 claude -p \
-  --model sonnet \
+  --model opus \
   --append-system-prompt "$AGENT_PROMPT" \
   --allowedTools "Bash(bzrk:*) Bash(kubectl:*)" \
   --max-budget-usd 1.00 \
