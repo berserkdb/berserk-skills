@@ -55,10 +55,8 @@ You must distinguish between **services actually down** vs **telemetry pipeline 
 **Common pitfalls:**
 
 - Concluding "services were down" because you see no app service telemetry — you haven't checked the pipeline yet
-- Treating one healthy pipeline component as proof the whole pipeline is fine — each component must be checked independently. An agent/daemonset surviving does not mean the central collector or ingester survived
 - Ignoring infrastructure services in your investigation — they are part of the data path
 - Treating backlog flush as a definitive test — its absence is inconclusive
-- Finding a process that survived the gap (same instance ID) and assuming it was fine — a surviving process that went silent was likely frozen or deadlocked
 
 ### Phase 2: Identify error patterns
 
