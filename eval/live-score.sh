@@ -48,7 +48,7 @@ else
 fi
 
 # +5: Agent docs show grouping errors by service
-if agent_has "$OTEL_LOG" "resource.attributes\['service.name'\].*ERROR\|ERROR.*resource.attributes\['service.name'\]"; then
+if agent_has "$OTEL_LOG" "resource.attributes\['service.name'\].*ERROR|ERROR.*resource.attributes\['service.name'\]"; then
     task1=$((task1 + 5))
     note "+5  T1: otel-log shows service+error filtering pattern"
 else
@@ -90,7 +90,7 @@ else
 fi
 
 # +5: Agent docs show totimespan or annotate for dynamic duration field
-if agent_has "$OTEL_TRACE" 'totimespan\|annotate.*duration\|duration.*annotate'; then
+if agent_has "$OTEL_TRACE" 'totimespan|annotate.*duration|duration.*annotate'; then
     task2=$((task2 + 5))
     note "+5  T2: docs show duration type conversion"
 else
@@ -107,7 +107,7 @@ else
 fi
 
 # +5: Agent docs show the pattern for slow span investigation (top N by duration)
-if agent_has "$OTEL_TRACE" 'top.*duration\|duration.*desc'; then
+if agent_has "$OTEL_TRACE" 'top.*duration|duration.*desc'; then
     task2=$((task2 + 5))
     note "+5  T2: docs show top-by-duration pattern"
 else
@@ -124,7 +124,7 @@ echo "Task 2 (Latency Investigation): $task2 / 20"
 task3=0
 
 # +5: Agent shows trace_id based drill-down pattern
-if agent_has "$OTEL_TRACE" "trace_id.*==\|where trace_id"; then
+if agent_has "$OTEL_TRACE" "trace_id.*==|where trace_id"; then
     task3=$((task3 + 5))
     note "+5  T3: otel-trace shows trace_id drill-down"
 else
@@ -158,7 +158,7 @@ echo "Task 3 (Trace Correlation): $task3 / 15"
 task4=0
 
 # +5: Agent docs show histogram-specific fields (bucket_counts, explicit_bounds)
-if agent_has "$OTEL_METRIC" 'bucket_counts\|explicit_bounds'; then
+if agent_has "$OTEL_METRIC" 'bucket_counts|explicit_bounds'; then
     task4=$((task4 + 5))
     note "+5  T4: otel-metric mentions histogram fields"
 else
@@ -175,7 +175,7 @@ else
 fi
 
 # +5: Agent docs show annotate with :real for metric value aggregation
-if agent_has "$OTEL_METRIC" 'annotate.*value:real\|annotate.*:real'; then
+if agent_has "$OTEL_METRIC" 'annotate.*value:real|annotate.*:real'; then
     task4=$((task4 + 5))
     note "+5  T4: docs show annotate value:real for metric aggregation"
 else
@@ -192,7 +192,7 @@ echo "Task 4 (Metric Analysis): $task4 / 15"
 task5=0
 
 # +5: Agent docs show bin() for time-series bucketing
-if agent_has "$EXPLORE" 'bin.*\$time\|bin.*time' || agent_has "$OTEL_TRACE" 'bin.*\$time'; then
+if agent_has "$EXPLORE" 'bin.*\$time|bin.*time' || agent_has "$OTEL_TRACE" 'bin.*\$time'; then
     task5=$((task5 + 5))
     note "+5  T5: docs show bin() for time-series"
 else
@@ -209,7 +209,7 @@ else
 fi
 
 # +5: Agent shows make-series or time-based summarize for trend detection
-if agent_has "$EXPLORE" 'make-series\|bin.*1h\|bin.*5m\|bin.*1m' || agent_has "$OTEL_METRIC" 'bin.*1m\|bin.*5m\|bin.*1h'; then
+if agent_has "$EXPLORE" 'make-series|bin.*1h|bin.*5m|bin.*1m' || agent_has "$OTEL_METRIC" 'bin.*1m|bin.*5m|bin.*1h'; then
     task5=$((task5 + 5))
     note "+5  T5: docs show time-bucketed aggregation patterns"
 else
@@ -226,19 +226,19 @@ all_agents="$EXPLORE $OTEL_LOG $OTEL_TRACE $OTEL_METRIC"
 
 functions_found=0
 # Aggregation functions
-for fn in "percentile" "dcount" "avg\b" "count()" "take_any" "arg_max\|arg_min" "make_list\|make_set\|collect"; do
+for fn in "percentile" "dcount" "avg\b" "count()" "take_any" "arg_max|arg_min" "make_list|make_set|collect"; do
     if grep -qiE "$fn" $all_agents 2>/dev/null; then
         functions_found=$((functions_found + 1))
     fi
 done
 # Scalar functions
-for fn in "totimespan\|todatetime\|tostring\|toint\|toreal\|tolong" "extract\b\|extract_all" "case(\|iff(" "coalesce" "strcat\|strlen\|substring" "parse_json\|parse_url\|bag_keys" "bin(\|bin_at" "format_datetime\|format_timespan"; do
+for fn in "totimespan|todatetime|tostring|toint|toreal|tolong" "extract\b|extract_all" "case\(|iff\(" "coalesce" "strcat|strlen|substring" "parse_json|parse_url|bag_keys" "bin\(|bin_at" "format_datetime|format_timespan"; do
     if grep -qiE "$fn" $all_agents 2>/dev/null; then
         functions_found=$((functions_found + 1))
     fi
 done
 # Tabular operators
-for fn in "annotate " "mv-expand\|mv-apply" "search " "fieldstats" "otel-log-stats" "log_template_hash\|extract_log_template"; do
+for fn in "annotate " "mv-expand|mv-apply" "search " "fieldstats" "otel-log-stats" "log_template_hash|extract_log_template"; do
     if grep -qiE "$fn" $all_agents 2>/dev/null; then
         functions_found=$((functions_found + 1))
     fi
