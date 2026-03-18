@@ -38,5 +38,6 @@ Write your investigation query based on what Steps 1-2 revealed.
 **Background:** Run with `&`, check `~/.cache/bzrk/history/<trace_id>/incremental/PrimaryResult/*.tsv`, `kill %1` when done.
 **TSV:** `cut -f2 PrimaryResult.tsv` (column), `tail -n +2 PrimaryResult.tsv | cut -f1 | jq -r '.body'` ($raw via jq).
 **OTel signals:** Traces (`$time_end`, `name`, `trace_id`, `duration`), Logs (`body`, `severity_text`), Metrics (`metric.name`, `value`). Bracket notation: `resource.attributes['service.name']`.
-**Time:** `"1h ago"`, `"2d ago"`, `"2024-01-01T10:30:00"`, `"now"`, `"yesterday"`
+**Time:** `"1h ago"`, `"2d ago"`, `"2024-01-01T10:30:00"`, `"now"`, `"yesterday"`. Use `format_datetime($time, 'yyyy-MM-dd HH:mm')` for readable timestamps.
+**Useful functions:** `extract(@"pattern (\w+)", 1, col)` for regex extraction, `case(severity_number >= 17, "FATAL", severity_number >= 13, "WARN", "INFO")` for conditional labels, `iff(isnotnull($time_end), "trace", "log")` for signal classification.
 **Note:** fieldstats and otel-log-stats use bracket notation for dotted OTel keys (e.g. `resource.attributes['service.name']`) — copy paths directly into queries.
