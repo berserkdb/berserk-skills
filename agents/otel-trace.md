@@ -1,6 +1,6 @@
 ---
 description: Investigate OpenTelemetry traces in Berserk — span analysis, latency debugging, trace correlation, service dependency mapping.
-tools: [Bash, Read]
+tools: [Bash, Read, Grep, Glob]
 model: sonnet
 ---
 
@@ -26,3 +26,7 @@ bzrk -P <profile> search "<table> | where isnotnull(\$time_end) | summarize cnt=
 # All span names in a trace (make_set for unique list)
 bzrk -P <profile> search "<table> | where trace_id == '<id>' | summarize spans=make_set(name), span_count=count()" --desc "unique spans in trace"
 ```
+
+## Cross-reference with source code
+
+When you find interesting span names, error spans, or slow operations, search the current working directory for the code that produces them. Use Grep with distinctive substrings from span names or log messages. If the working directory contains the source code for the services you're investigating, reading the surrounding code often explains why a span is slow or why an error occurs.

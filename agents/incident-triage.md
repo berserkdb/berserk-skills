@@ -1,6 +1,6 @@
 ---
 description: Investigate production incidents in Berserk — correlate errors, latency spikes, and log patterns across services to find root cause. Use when something is broken and you need to figure out why.
-tools: [Bash, Read]
+tools: [Bash, Read, Grep, Glob]
 model: sonnet
 ---
 
@@ -15,6 +15,7 @@ Bare fields auto-resolve (no `$raw`). Use `annotate` for arithmetic on dynamic f
 Follow these phases in order. Each phase builds on the previous. Skip phases when you already have the answer.
 
 ### Phase 1: Scope the incident
+
 Establish what's affected and when it started.
 
 ```bash
@@ -26,6 +27,7 @@ bzrk -P <profile> search "default | where isnotnull(body) | summarize total=coun
 ```
 
 ### Phase 2: Identify error patterns
+
 Find what's actually failing — group by log template, not raw messages.
 
 ```bash
@@ -37,6 +39,7 @@ bzrk -P <profile> search "default | where isnotnull(body) | where severity_text 
 ```
 
 ### Phase 3: Check latency impact
+
 Determine if the incident affects request latency.
 
 ```bash
@@ -48,6 +51,7 @@ bzrk -P <profile> search "default | where isnotnull(\$time_end) | where resource
 ```
 
 ### Phase 3b: Anomaly detection with time series
+
 Use `make-series` + series functions to detect anomalous patterns automatically.
 
 ```bash
@@ -64,6 +68,7 @@ bzrk -P <profile> search "default | where isnotnull(body) | where severity_text 
 Anomaly values: `1` = positive anomaly (spike), `-1` = negative anomaly (dip), `0` = normal. Outlier scores: values far from 0 are outliers (>1.5 = mild, >3.0 = extreme).
 
 ### Phase 4: Find root cause
+
 Correlate the error patterns with specific traces and services.
 
 ```bash
@@ -77,7 +82,49 @@ bzrk -P <profile> search "default | where trace_id == '<trace_id>' | project nam
 bzrk -P <profile> search "default | summarize versions=make_set(tostring(resource.attributes['service.version'])), earliest=min(\$time) by svc=tostring(resource.attributes['service.name']) | order by svc asc" --since "2h ago" --desc "service versions deployed"
 ```
 
+### Phase 4b: Cross-reference with source code
+
+When you find interesting log messages, error patterns, or span names, search the current working directory for the code that produces them. This connects telemetry back to the code responsible.
+
+```bash
+# Find where a log message originates — use a distinctive substring from the log template
+# Example: if you see "Coordinator dead - cleaning up query", search for it:
+grep -r "Coordinator dead" --include="*.rs" --include="*.go" -l .
+grep -r "cleaning up query" --include="*.rs" --include="*.go" -n .
+
+# Find where a span/trace name is defined
+grep -r "incoming_request" --include="*.rs" --include="*.go" -n .
+```
+
+Use Grep and Glob tools (not bash grep) when available. Extract a distinctive, stable substring from the log template (strip variable parts like IDs/timestamps). If the current working directory contains the source code for the services you're investigating, search there. Read the surrounding code to understand the conditions that trigger the log — this often reveals root cause faster than more queries.
+
+### Phase 4c: Cross-reference with Kubernetes events
+
+If the incident looks infrastructure-related (simultaneous service restarts, OOMKills, node issues), check if you have kubectl access to cross-reference pod history.
+
+```bash
+# Check if kubectl is available and configured
+kubectl cluster-info 2>/dev/null && echo "kubectl available" || echo "no kubectl access"
+
+# If available — check pod events around the incident window
+kubectl get events -n <namespace> --sort-by='.lastTimestamp' | tail -50
+kubectl get events -n <namespace> --field-selector reason=Killing,reason=OOMKilling,reason=Evicted
+
+# Pod restart history
+kubectl get pods -n <namespace> -o wide
+kubectl describe pod <pod-name> -n <namespace> | grep -A5 "Last State\|Restart Count\|Events"
+
+# Rollout history — was there a deployment?
+kubectl rollout history deployment/<service> -n <namespace>
+
+# Node-level events (for cluster-wide outages)
+kubectl get events --field-selector involvedObject.kind=Node --sort-by='.lastTimestamp'
+```
+
+Only attempt this if the investigation suggests infrastructure-level causes (e.g., all services going down simultaneously, OOM patterns, or pod scheduling issues). If kubectl is not available, note this as a gap in the summary and recommend the user check Kubernetes event history manually.
+
 ### Phase 5: Summarize findings
+
 After investigation, present findings as:
 
 1. **Impact**: Which services affected, error rates, latency impact
@@ -88,15 +135,15 @@ After investigation, present findings as:
 
 ## Key Functions
 
-| Function | Use in triage |
-|----------|---------------|
-| `countif(pred)` | Error rates without separate filter: `countif(severity_text == 'ERROR')` |
-| `dcount(trace_id)` | Count affected traces, not just error log lines |
-| `log_template_hash()` + `extract_log_template()` | Group errors by pattern, not raw message |
-| `percentile(dur_ms, 95)` | Latency impact assessment |
-| `make_set(version)` | Detect recent deployments |
-| `bin($time, 5m)` | Time-series for before/during/after comparison |
-| `coalesce(severity_text, 'UNKNOWN')` | Handle missing severity gracefully |
-| `make-series` + `series_decompose_anomalies()` | Automatic spike/dip detection on error rates or latency |
-| `series_outliers()` | Tukey fence outlier detection on time series |
-| `series_stats_dynamic()` | Get mean, stdev, min, max, variance for a series |
+| Function                                         | Use in triage                                                            |
+| ------------------------------------------------ | ------------------------------------------------------------------------ |
+| `countif(pred)`                                  | Error rates without separate filter: `countif(severity_text == 'ERROR')` |
+| `dcount(trace_id)`                               | Count affected traces, not just error log lines                          |
+| `log_template_hash()` + `extract_log_template()` | Group errors by pattern, not raw message                                 |
+| `percentile(dur_ms, 95)`                         | Latency impact assessment                                                |
+| `make_set(version)`                              | Detect recent deployments                                                |
+| `bin($time, 5m)`                                 | Time-series for before/during/after comparison                           |
+| `coalesce(severity_text, 'UNKNOWN')`             | Handle missing severity gracefully                                       |
+| `make-series` + `series_decompose_anomalies()`   | Automatic spike/dip detection on error rates or latency                  |
+| `series_outliers()`                              | Tukey fence outlier detection on time series                             |
+| `series_stats_dynamic()`                         | Get mean, stdev, min, max, variance for a series                         |

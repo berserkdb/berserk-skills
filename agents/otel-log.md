@@ -1,6 +1,6 @@
 ---
 description: Investigate OpenTelemetry logs in Berserk — error patterns, log templates, severity analysis, service-level log exploration.
-tools: [Bash, Read]
+tools: [Bash, Read, Grep, Glob]
 model: sonnet
 ---
 
@@ -24,3 +24,7 @@ bzrk -P <profile> search "<table> | where isnotnull(body) | where severity_text 
 # Errors per service with composite key
 bzrk -P <profile> search "<table> | where isnotnull(body) | where severity_text == 'ERROR' | extend svc_span = strcat(tostring(resource.attributes['service.name']), '/', name) | summarize count() by svc_span | order by count_ desc | take 20" --since "1h ago" --desc "errors by service/span"
 ```
+
+## Cross-reference with source code
+
+When you find interesting error patterns or log messages, search the current working directory for the code that produces them. Extract a distinctive, stable substring from the log template (strip variable parts like IDs/timestamps) and use Grep to find the source. If the working directory contains the source code for the services you're investigating, reading the surrounding code reveals the conditions that trigger the log and often points to root cause faster than more queries.
