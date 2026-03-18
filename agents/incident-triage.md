@@ -111,6 +111,24 @@ bzrk -P <profile> search "default | where trace_id == '<trace_id>' | project nam
 bzrk -P <profile> search "default | summarize versions=make_set(tostring(resource.attributes['service.version'])), earliest=min(\$time) by svc=tostring(resource.attributes['service.name']) | order by svc asc" --since "2h ago" --desc "service versions deployed"
 ```
 
+### Phase 4a: Diagnose deployment-caused gaps
+
+If the telemetry gap coincides with version changes, investigate whether a rolling update or deployment caused the outage.
+
+```bash
+# Compare versions before and after the gap — version changes confirm a deployment occurred
+bzrk -P <profile> search "default | summarize versions=make_set(tostring(resource.attributes['service.version'])) by svc=tostring(resource.attributes['service.name'])" --since "<before_gap>" --until "<gap_start>" --desc "versions before gap"
+bzrk -P <profile> search "default | summarize versions=make_set(tostring(resource.attributes['service.version'])) by svc=tostring(resource.attributes['service.name'])" --since "<gap_end>" --until "<after_gap>" --desc "versions after gap"
+
+# Look for rolling update patterns — old and new versions running simultaneously after gap
+bzrk -P <profile> search "default | summarize count() by tostring(resource.attributes['service.name']), tostring(resource.attributes['service.version']), bin(\$time, 1m) | order by \$time asc" --since "<gap_end>" --until "<15m_after_gap>" --desc "rolling update — old and new pods coexisting"
+
+# Check for cold-start / transient errors right after restart — these are normal during warm-up
+bzrk -P <profile> search "default | where isnotnull(body) | where severity_text == 'ERROR' or severity_text == 'FATAL' | where \$time >= todatetime('<gap_end>') | summarize count=count(), sample=take_any(tostring(body)) by tostring(resource.attributes['service.name']) | order by count desc" --since "<gap_end>" --until "<15m_after_gap>" --desc "cold-start or transient errors after restart"
+```
+
+**Assess gap duration:** A Kubernetes rolling update typically completes in minutes. If the gap is much longer (hours), it's likely a maintenance window, a stuck deployment, or an infrastructure issue — not a normal rolling restart. Note the expected vs actual duration in your findings.
+
 ### Phase 4b: Cross-reference with source code
 
 When you find interesting log messages, error patterns, or span names, search the current working directory for the code that produces them. This connects telemetry back to the code responsible.
