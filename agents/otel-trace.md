@@ -19,4 +19,10 @@ bzrk -P <profile> search "<table> | where trace_id == '<id>' | project name, \$t
 bzrk -P <profile> search "<table> | where isnotnull(\$time_end) | where attributes['error'] == true or status_code == 'ERROR' | project name, \$time, duration, resource.attributes['service.name'], trace_id | take 20" --since "1h ago" --desc "error spans"
 # Service dependency map
 bzrk -P <profile> search "<table> | where isnotnull(\$time_end) | where kind == 'CLIENT' or kind == 'SERVER' | summarize count() by tostring(resource.attributes['service.name']), name, kind | order by count_ desc | take 30" --since "1h ago" --desc "service dependencies"
+# Slowest span with full row (arg_max returns the entire row for the max value)
+bzrk -P <profile> search "<table> | where isnotnull(\$time_end) | annotate duration:timespan | summarize arg_max(duration, *) by tostring(resource.attributes['service.name'])" --since "1h ago" --desc "slowest span per service"
+# Trace volume over time (spot spikes)
+bzrk -P <profile> search "<table> | where isnotnull(\$time_end) | summarize cnt=count() by bin(\$time, 5m), tostring(resource.attributes['service.name']) | order by cnt desc | take 50" --since "1h ago" --desc "trace volume by 5m buckets"
+# All span names in a trace (make_set for unique list)
+bzrk -P <profile> search "<table> | where trace_id == '<id>' | summarize spans=make_set(name), span_count=count()" --desc "unique spans in trace"
 ```

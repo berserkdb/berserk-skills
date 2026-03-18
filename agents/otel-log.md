@@ -17,4 +17,10 @@ bzrk -P <profile> search "<table> | where isnotnull(body) | where severity_text 
 bzrk -P <profile> search "<table> | where isnotnull(body) | summarize count() by tostring(resource.attributes['service.name']), severity_text | order by count_ desc" --since "1h ago" --desc "log volume by service and severity"
 # Search logs for a keyword
 bzrk -P <profile> search "<table> | where isnotnull(body) | search \"connection refused\" | take 10" --since "15m ago" --desc "search for connection refused"
+# Parse structured JSON log bodies
+bzrk -P <profile> search "<table> | where isnotnull(body) | extend parsed = parse_json(tostring(body)) | where isnotnull(parsed.error) | project \$time, parsed.error, parsed.message, resource.attributes['service.name'] | take 20" --since "1h ago" --desc "structured error logs"
+# Truncate long log messages for readability
+bzrk -P <profile> search "<table> | where isnotnull(body) | where severity_text == 'ERROR' | project \$time, msg=substring(tostring(body), 0, 200), resource.attributes['service.name'] | take 20" --since "1h ago" --desc "truncated error logs"
+# Errors per service with composite key
+bzrk -P <profile> search "<table> | where isnotnull(body) | where severity_text == 'ERROR' | extend svc_span = strcat(tostring(resource.attributes['service.name']), '/', name) | summarize count() by svc_span | order by count_ desc | take 20" --since "1h ago" --desc "errors by service/span"
 ```
