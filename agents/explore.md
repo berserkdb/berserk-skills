@@ -38,7 +38,7 @@ Write your investigation query based on what Steps 1-2 revealed.
 **Background:** Run with `&`, check `~/.cache/bzrk/history/<trace_id>/incremental/PrimaryResult/*.tsv`, `kill %1` when done.
 **TSV:** `cut -f2 PrimaryResult.tsv` (column), `tail -n +2 PrimaryResult.tsv | cut -f1 | jq -r '.body'` ($raw via jq).
 **OTel signals:** Traces (`$time_end`, `name`, `trace_id`, `duration`), Logs (`body`, `severity_text`), Metrics (`metric.name`, `value`). Bracket notation: `resource.attributes['service.name']`.
-**Time:** `"1h ago"`, `"2d ago"`, `"2024-01-01T10:30:00"`, `"now"`, `"yesterday"`. Use `format_datetime($time, 'yyyy-MM-dd HH:mm')` for readable timestamps.
+**Time:** `"1h ago"`, `"2d ago"`, `"2024-01-01T10:30:00"`, `"now"`, `"yesterday"`.
 **Note:** fieldstats and otel-log-stats use bracket notation for dotted OTel keys (e.g. `resource.attributes['service.name']`) — copy paths directly into queries.
 
 ## KQL Function Reference
@@ -51,8 +51,8 @@ Write your investigation query based on what Steps 1-2 revealed.
 | `percentile(col, N)` | Latency analysis | `summarize p99=percentile(dur_ms, 99)` |
 | `dcount(col)` | Distinct count estimate | `summarize dcount(trace_id)` — unique traces |
 | `take_any(col)` | Grab a sample value | `summarize sample=take_any(tostring(body))` |
-| `arg_max(col, *)` | Full row for max value | `summarize arg_max(duration, *) by service` — row with slowest span |
-| `arg_min(col, *)` | Full row for min value | `summarize arg_min($time, *) by trace_id` — earliest event per trace |
+| `arg_max(expr, col)` | Value at max | `summarize arg_max(dur_ms, name) by service` — span name at slowest duration |
+| `arg_min(expr, col)` | Value at min | `summarize arg_min(dur_ms, name) by service` — span name at fastest duration |
 | `make_list(col)` | Collect into array | `summarize spans=make_list(name) by trace_id` |
 | `make_set(col)` | Collect unique values | `summarize services=make_set(tostring(resource.attributes['service.name']))` |
 
@@ -62,7 +62,7 @@ Write your investigation query based on what Steps 1-2 revealed.
 | `tostring()`, `toint()`, `tolong()`, `toreal()` | Type conversion | `tostring(resource.attributes['service.name'])` for `summarize by` |
 | `totimespan()`, `todatetime()` | Temporal conversion | `extend dur_ms = totimespan(duration) / 1ms` — duration is dynamic |
 | `coalesce(a, b)` | Null fallback | `extend sev = coalesce(severity_text, "UNKNOWN")` |
-| `extract(@"regex", N, col)` | Regex capture | `extract(@"error: (.+)", 1, tostring(body))` |
+| `extract('regex', N, col)` | Regex capture | `extract('error: (.+)', 1, tostring(body))` |
 | `case(pred, val, ...)` | Multi-condition labels | `case(severity_number >= 17, "FATAL", severity_number >= 13, "WARN", "INFO")` |
 | `iff(pred, then, else)` | Binary conditional | `iff(isnotnull($time_end), "trace", "log")` |
 | `strcat(a, b)` | String concatenation | `strcat(resource.attributes['service.name'], "/", name)` |
@@ -77,6 +77,6 @@ Write your investigation query based on what Steps 1-2 revealed.
 |----------|----------|---------|
 | `annotate col:type` | Declare types for dynamic fields | `annotate duration:timespan, value:real` |
 | `mv-expand col` | Explode array into rows | `mv-expand bucket_counts` — one row per histogram bucket |
-| `mv-apply col to typeof(real) on (...)` | Per-element subquery | Process each array element with aggregation |
-| `parse` | Extract structured fields from strings | `parse tostring(body) with "error:" msg " at " location` |
+| `mv-apply col to typeof(T) on (...)` | Per-element subquery | `mv-apply bc = bucket_counts to typeof(long) on (summarize total = sum(bc))` |
+| `parse` | Extract structured fields from strings | `parse tostring(body) with 'error:' msg ' at ' location` |
 | `search "term"` | Full-text search across all columns | `<table> \| search "timeout" \| take 10` |
