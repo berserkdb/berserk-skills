@@ -19,10 +19,10 @@ curl -fsSL https://go.bzrk.dev | bash
 ## Core Principles
 
 1. **Discover tables first.** Always run `.show tables` before querying. Never assume a table called `default` exists — use the actual table name returned by `.show tables`.
-2. **Discover schema before writing queries.** Run `fieldstats with depth=1` to see top-level columns, then `fieldstats resource, attributes with depth=3` to see nested fields. Never assume field names — they vary between Berserk instances.
+2. **Discover schema when needed.** If you already know the table and field names (from prior queries or user context), skip discovery and query directly — this is the fast-path shortcut. Only run fieldstats when exploring an unfamiliar instance or when queries return unexpected nulls.
 3. **Always limit results.** Never run unbounded queries. Use `| take N`, `| tail N`, `| top N by col`, or `| summarize ...`.
 4. **Always time-delimit.** Every query needs `--since`/`--until` or a `where $time` clause.
-5. **Start broad, then narrow.** Use fieldstats and otel-log-stats to understand data shape before writing targeted queries.
+5. **Prefer combined discovery.** Use `otel-log-stats` instead of multiple separate fieldstats queries — it gives schema + top values in a single query.
 6. **Use background queries for broad searches.** Run wide time ranges with `&`, inspect partial TSV results, and kill early when you find what you need.
 7. **Keep context clean.** Work with TSV result files (`~/.cache/bzrk/history/<trace_id>/PrimaryResult.tsv`) using cut/awk/jq instead of pasting large result sets.
 8. **Always provide `--desc`.** Document why each query is run to tell the story of the investigation.
