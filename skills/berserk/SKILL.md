@@ -19,12 +19,14 @@ description: |
 
 | Task | Agent | When to use |
 |------|-------|-------------|
+| Incident triage | `berserk:incident-triage` | Something is broken — find root cause across logs, traces, and metrics |
+| Trace analysis | `berserk:trace-analysis` | Explain why a request was slow or failed — build cause-and-effect narrative |
 | Log investigation | `berserk:otel-log` | Searching errors, log patterns, severity analysis, service log volume |
-| Trace investigation | `berserk:otel-trace` | Span analysis, latency debugging, trace correlation, service dependencies |
+| Trace investigation | `berserk:otel-trace` | Span queries, latency percentiles, trace correlation, service dependencies |
 | Metrics investigation | `berserk:otel-metric` | Metric discovery, time-series queries, histogram analysis, spike detection |
 | General exploration | `berserk:explore` | Schema discovery, unfamiliar instances, mixed-signal queries, fieldstats |
 
-Use `berserk:explore` when the signal type is unknown or the task spans multiple signal types. Use the specialized agents when the user's intent clearly maps to logs, traces, or metrics.
+Use `berserk:incident-triage` when the user reports a problem ("errors are up", "service is slow", "something broke"). Use `berserk:trace-analysis` when they have a specific trace or slow request to investigate. Use the signal-specific agents for targeted queries. Use `berserk:explore` when the signal type is unknown or the task spans multiple signal types.
 
 **For inline help** (KQL syntax questions, bzrk flag reference), use the quick reference below.
 
