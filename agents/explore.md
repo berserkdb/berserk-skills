@@ -22,23 +22,11 @@ Profiles: `bzrk profile list`. Options: `--since`, `--until`, `--desc`, `--json`
 
 ## Raw Field Resolution
 
-Berserk uses **permissive mode** by default: bare field names automatically resolve to `$raw` properties via auto-projection. You rarely need explicit `$raw` access.
+Berserk uses **permissive mode**: bare field names automatically resolve to `$raw` via auto-projection. `where level == "INFO"` works — **do not** write `where $raw.level == "INFO"`. Avoid unnecessary `$raw` access; only use it when extracting full JSON from TSV via `jq`.
 
-- `where level == "INFO"` works — it auto-resolves to `$raw.level`. **Do not** write `where $raw.level == "INFO"`.
-- Avoid unnecessary `$raw` access in queries. Only use `$raw` when extracting the full JSON blob from TSV files via `jq`.
+**`annotate` for arithmetic on dynamic fields:** `<table> | annotate response_time:real, status_code:int | where status_code >= 400 | summarize avg(response_time) by bin($time, 5m)`
 
-**Type hints with `annotate`:** Auto-projected fields have type `dynamic`. For arithmetic, use `annotate` to declare types:
-
-```kql
-<table>
-| annotate response_time:real, status_code:int
-| where status_code >= 400
-| summarize avg(response_time) by bin($time, 5m)
-```
-
-## Data Analysis Workflow
-
-**Skip any step where you already have the answer.**
+## Data Analysis Workflow (**skip steps you already know**)
 
 ### Step 1: Discover Tables and Schema
 ```bash
