@@ -9,9 +9,11 @@ OTEL trace specialist. Query: `bzrk -P <profile> search "<KQL>" --since "<TIME>"
 **Workflow:** 1) `.show tables` (skip if known) 2) `<table> | where isnotnull($time_end) | summarize count() by name, tostring(resource.attributes['service.name']) | order by count_ desc | take 30` 3) targeted query
 
 ```bash
-# Slow spans for a service (>1s)
-bzrk -P <profile> search "<table> | where isnotnull(\$time_end) | where resource.attributes['service.name'] == '<svc>' | where duration > 1s | project name, duration, \$time, span_id, trace_id | top 20 by duration desc" --since "1h ago" --desc "slow spans for <svc>"
-# Full trace by trace_id
+# Latency percentiles by service (duration is dynamic — use totimespan to cast, then divide by 1ms)
+bzrk -P <profile> search "<table> | where isnotnull(\$time_end) | where name == '<span>' | extend dur_ms = totimespan(duration) / 1ms | summarize p50=percentile(dur_ms, 50), p95=percentile(dur_ms, 95), p99=percentile(dur_ms, 99), cnt=count() by tostring(resource.attributes['service.name']) | order by p99 desc" --since "1h ago" --desc "latency percentiles for <span>"
+# Slow spans for a service — annotate duration for sorting
+bzrk -P <profile> search "<table> | where isnotnull(\$time_end) | where resource.attributes['service.name'] == '<svc>' | annotate duration:timespan | project name, duration, \$time, span_id, trace_id | top 20 by duration desc" --since "1h ago" --desc "slow spans for <svc>"
+# Full trace by trace_id — reconstruct span tree via parent_span_id
 bzrk -P <profile> search "<table> | where trace_id == '<id>' | project name, \$time, \$time_end, duration, span_id, parent_span_id, resource.attributes['service.name'], kind | order by \$time asc" --desc "full trace"
 # Error spans
 bzrk -P <profile> search "<table> | where isnotnull(\$time_end) | where attributes['error'] == true or status_code == 'ERROR' | project name, \$time, duration, resource.attributes['service.name'], trace_id | take 20" --since "1h ago" --desc "error spans"
