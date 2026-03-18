@@ -26,6 +26,35 @@ bzrk -P <profile> search "default | where isnotnull(body) | where severity_text 
 bzrk -P <profile> search "default | where isnotnull(body) | summarize total=count(), errors=countif(severity_text == 'ERROR' or severity_text == 'error') by tostring(resource.attributes['service.name']) | extend error_pct=round(100.0 * errors / total, 2) | order by error_pct desc" --since "1h ago" --desc "error percentage by service"
 ```
 
+### Phase 1b: Diagnose telemetry gaps
+
+If Phase 1 reveals a period with zero or near-zero telemetry across multiple services, you must distinguish between **services actually down** vs **telemetry pipeline broken** (collection/ingestion failure). Do NOT assume services were down just because telemetry is absent.
+
+**Key diagnostic steps:**
+
+1. **Check if ANY source has data during the gap** — if zero telemetry of any kind was ingested (no logs, no traces, no metrics from any service), the ingestion pipeline itself may have failed.
+2. **Check the OTel collector/agent service** — does it emit its own health telemetry? If the collector has logs but application services don't, services are likely down. If the collector is also silent, the collection pipeline may be broken.
+3. **Look for backlog flush on recovery** — when a pipeline breaks and recovers, you often see a burst of logs with timestamps clustered at the start of the gap (backlogged data flushing through). If services restart cleanly, logs resume with current timestamps and mid-operation messages.
+4. **Consider the ingestion pipeline as a cause** — the telemetry pipeline includes: app → OTel collector/agent → ingestion endpoint → storage. A failure at any stage causes a gap indistinguishable from "services down" if you only look at stored telemetry.
+
+```bash
+# Check if ANY telemetry exists during the gap (across all services)
+bzrk -P <profile> search "default | where isnotnull(body) or isnotnull(\$time_end) | summarize total=count() by bin(\$time, 15m) | order by \$time asc" --since "<gap_start>" --until "<gap_end>" --desc "any telemetry during gap period"
+
+# Check for collector/agent health signals
+bzrk -P <profile> search "default | where resource.attributes['service.name'] has 'collector' or resource.attributes['service.name'] has 'agent' or resource.attributes['service.name'] has 'otel' | summarize count() by bin(\$time, 15m), tostring(resource.attributes['service.name']) | order by \$time asc" --since "<before_gap>" --until "<after_gap>" --desc "collector/agent telemetry around gap"
+
+# After gap ends — check if logs have timestamps from gap start (backlog flush) or current time (clean restart)
+bzrk -P <profile> search "default | where isnotnull(body) | where \$time >= todatetime('<gap_end>') | project \$time, body, resource.attributes['service.name'] | take 20 | order by \$time asc" --desc "first logs after gap — check for backlog flush pattern"
+```
+
+**Decision framework:**
+
+- Zero telemetry from ALL sources + no collector signals → **ambiguous** — explicitly state both hypotheses (services down vs pipeline broken) and recommend checking Kubernetes pod history or external monitoring
+- Zero telemetry from ALL sources + collector was alive → **services were down**
+- Zero telemetry from ALL sources + backlog flush on recovery → **pipeline was broken**, services were up
+- Some services have telemetry, others don't → **partial outage**, investigate per-service
+
 ### Phase 2: Identify error patterns
 
 Find what's actually failing — group by log template, not raw messages.
