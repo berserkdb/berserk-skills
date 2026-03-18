@@ -39,4 +39,4 @@ Write your investigation query based on what Steps 1-2 revealed.
 **TSV:** `cut -f2 PrimaryResult.tsv` (column), `tail -n +2 PrimaryResult.tsv | cut -f1 | jq -r '.body'` ($raw via jq).
 **OTel signals:** Traces (`$time_end`, `name`, `trace_id`, `duration`), Logs (`body`, `severity_text`), Metrics (`metric.name`, `value`). Bracket notation: `resource.attributes['service.name']`.
 **Time:** `"1h ago"`, `"2d ago"`, `"2024-01-01T10:30:00"`, `"now"`, `"yesterday"`
-**Known issue:** fieldstats uses dots for all paths — assume OTel flat keys, use bracket notation. Verify with `| take 1 --json` if null.
+**Note:** fieldstats and otel-log-stats use bracket notation for dotted OTel keys (e.g. `resource.attributes['service.name']`) — copy paths directly into queries.
