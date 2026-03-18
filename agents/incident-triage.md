@@ -32,27 +32,36 @@ If Phase 1 reveals a period with zero or near-zero telemetry across multiple ser
 
 **Key diagnostic steps:**
 
-1. **Check if ANY source has data during the gap** — if zero telemetry of any kind was ingested (no logs, no traces, no metrics from any service), the ingestion pipeline itself may have failed.
-2. **Check the OTel collector/agent service** — does it emit its own health telemetry? If the collector has logs but application services don't, services are likely down. If the collector is also silent, the collection pipeline may be broken.
-3. **Look for backlog flush on recovery** — when a pipeline breaks and recovers, you often see a burst of logs with timestamps clustered at the start of the gap (backlogged data flushing through). If services restart cleanly, logs resume with current timestamps and mid-operation messages.
-4. **Consider the ingestion pipeline as a cause** — the telemetry pipeline includes: app → OTel collector/agent → ingestion endpoint → storage. A failure at any stage causes a gap indistinguishable from "services down" if you only look at stored telemetry.
+1. **Enumerate ALL services, including infrastructure** — don't just look at application services. Run a query to list every `service.name` that has telemetry before and after the gap. Infrastructure services (collectors, ingesters, proxies) are part of the telemetry pipeline and their status is critical evidence.
+2. **Check if ANY source has data during the gap** — if zero telemetry of any kind was ingested (no logs, no traces, no metrics from any service), the ingestion pipeline itself may have failed.
+3. **Compare per-service resource instance IDs before and after the gap** — if a service's `service.instance.id` is identical before and after, the process survived the gap (it wasn't restarted). This applies to ALL services including infrastructure. A process that survived but produced no telemetry was likely frozen/deadlocked, not down.
+4. **Look for backlog flush on recovery** — when a pipeline breaks and recovers, you sometimes see a burst of logs with timestamps clustered at the start of the gap (backlogged data flushing through). If services restart cleanly, logs resume with current timestamps. **IMPORTANT:** absence of backlog flush does NOT prove services were down — if the pipeline froze upstream of any buffering/queuing layer, no data was buffered, so there's nothing to flush.
+5. **Check the last telemetry from each service before the gap** — look at the final spans/logs from infrastructure services. Were the last operations healthy (zero errors, normal latency)? A service that was healthy in its last millisecond then went completely silent likely froze or was killed externally, rather than degrading gradually.
+6. **Consider the full telemetry pipeline as a cause** — the pipeline includes: app → collector → exporter → ingester → storage. A failure at any stage causes a gap indistinguishable from "services down" if you only look at stored telemetry. Exporters can deadlock under backpressure. Queues can overflow and block upstream goroutines. Always investigate the pipeline components before concluding.
 
 ```bash
-# Check if ANY telemetry exists during the gap (across all services)
-bzrk -P <profile> search "default | where isnotnull(body) or isnotnull(\$time_end) | summarize total=count() by bin(\$time, 15m) | order by \$time asc" --since "<gap_start>" --until "<gap_end>" --desc "any telemetry during gap period"
+# List ALL services with telemetry before and after the gap
+bzrk -P <profile> search "default | summarize count=count(), first=min(\$time), last=max(\$time) by svc=tostring(resource.attributes['service.name']) | order by count desc" --since "<before_gap>" --until "<gap_start>" --desc "all services before gap"
+bzrk -P <profile> search "default | summarize count=count(), first=min(\$time), last=max(\$time) by svc=tostring(resource.attributes['service.name']) | order by count desc" --since "<gap_end>" --until "<after_gap>" --desc "all services after gap"
 
-# Check for collector/agent health signals
-bzrk -P <profile> search "default | where resource.attributes['service.name'] has 'collector' or resource.attributes['service.name'] has 'agent' or resource.attributes['service.name'] has 'otel' | summarize count() by bin(\$time, 15m), tostring(resource.attributes['service.name']) | order by \$time asc" --since "<before_gap>" --until "<after_gap>" --desc "collector/agent telemetry around gap"
+# Compare instance IDs before and after — same ID = process survived (possible freeze/deadlock)
+bzrk -P <profile> search "default | summarize instances=make_set(tostring(resource.attributes['service.instance.id'])) by svc=tostring(resource.attributes['service.name'])" --since "<before_gap>" --until "<gap_start>" --desc "instance IDs before gap"
+bzrk -P <profile> search "default | summarize instances=make_set(tostring(resource.attributes['service.instance.id'])) by svc=tostring(resource.attributes['service.name'])" --since "<gap_end>" --until "<after_gap>" --desc "instance IDs after gap"
 
-# After gap ends — check if logs have timestamps from gap start (backlog flush) or current time (clean restart)
-bzrk -P <profile> search "default | where isnotnull(body) | where \$time >= todatetime('<gap_end>') | project \$time, body, resource.attributes['service.name'] | take 20 | order by \$time asc" --desc "first logs after gap — check for backlog flush pattern"
+# Check last telemetry from each service before the gap — look at final health
+bzrk -P <profile> search "default | summarize last_seen=max(\$time) by svc=tostring(resource.attributes['service.name']) | order by last_seen desc" --since "<before_gap>" --until "<gap_start>" --desc "last timestamp per service before gap"
+
+# Check for backlog flush — are post-gap timestamps current or from the gap period?
+bzrk -P <profile> search "default | where \$time >= todatetime('<gap_end>') | project \$time, resource.attributes['service.name'], body | take 30 | order by \$time asc" --desc "first records after gap — check timestamp provenance"
 ```
 
 **Decision framework:**
 
-- Zero telemetry from ALL sources + no collector signals → **ambiguous** — explicitly state both hypotheses (services down vs pipeline broken) and recommend checking Kubernetes pod history or external monitoring
-- Zero telemetry from ALL sources + collector was alive → **services were down**
-- Zero telemetry from ALL sources + backlog flush on recovery → **pipeline was broken**, services were up
+- Same process instance IDs before and after gap + zero telemetry during → **pipeline froze/deadlocked** — the processes stayed alive but could not emit. Investigate exporter configuration, queue backpressure, and downstream ingester health
+- Different instance IDs (or new instances) after gap → processes were **restarted** — check kubectl for why (deployment, OOMKill, node drain, etc.)
+- Zero telemetry from ALL sources + cannot determine instance continuity → **ambiguous** — explicitly state both hypotheses (services down vs pipeline frozen) and recommend checking Kubernetes pod history
+- Backlog flush on recovery (gap-period timestamps arriving after gap) → **pipeline was broken** but had buffering — services were up
+- Absence of backlog flush → **inconclusive** — does not prove services were down (pipeline may have frozen upstream of any buffer)
 - Some services have telemetry, others don't → **partial outage**, investigate per-service
 
 ### Phase 2: Identify error patterns
