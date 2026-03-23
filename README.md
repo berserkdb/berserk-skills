@@ -4,10 +4,16 @@ Agent skills and subagents for querying [Berserk](https://berserk.dev) from AI c
 
 ## What's Included
 
-| Component                 | Description                                                                                                             |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| **berserk** skill         | Teaches Claude how to use the `bzrk` CLI — triggered automatically when you mention logs, traces, metrics, or debugging |
-| **berserk-explore** agent | A dedicated subagent for data exploration — runs queries in its own context window, returns concise findings            |
+| Component                    | Description                                                                                                             |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **berserk** skill            | Teaches Claude how to use the `bzrk` CLI — triggered automatically when you mention logs, traces, metrics, or debugging |
+| **explore** agent            | General-purpose data exploration — schema discovery, error investigation, service health checks                         |
+| **cluster-admin** agent      | Manage and troubleshoot a Berserk cluster — service health, datasets, segments, ingest tokens, merge tasks              |
+| **otel-log** agent           | Investigate OpenTelemetry logs — error patterns, log templates, severity analysis, service-level log exploration        |
+| **otel-trace** agent         | Investigate OpenTelemetry traces — span analysis, latency debugging, trace correlation, service dependency mapping      |
+| **otel-metric** agent        | Investigate OpenTelemetry metrics — gauge/sum/histogram analysis, metric discovery, time-series queries                 |
+| **incident-triage** agent    | Investigate production incidents — correlate errors, latency spikes, and log patterns to find root cause                |
+| **trace-analysis** agent     | Analyze distributed traces — build cause-and-effect narratives, identify critical paths and cascading failures          |
 
 ## Claude Code
 
@@ -49,9 +55,13 @@ Once installed, just ask Claude to query your data:
 - "What services are logging?"
 - "Investigate connection refused errors"
 
-The **berserk-explore** agent is invoked automatically when Claude needs to do focused data exploration (schema discovery, error investigation, service health checks) without filling up your main conversation with query results.
+The agents are invoked automatically when Claude needs to do focused investigation without filling up your main conversation with query results. The **berserk** skill routes tasks to the appropriate specialist agent based on the query type.
 
-You can also invoke it explicitly: "Use the berserk-explore agent to investigate timeout errors in production"
+You can also invoke agents explicitly:
+
+- "Use the explore agent to check what services are logging"
+- "Use the incident-triage agent to investigate the production outage"
+- "Use the trace-analysis agent to analyze trace abc123"
 
 ### Claude Agent SDK
 
@@ -71,20 +81,20 @@ for await (const message of query({
 }
 ```
 
-Or define it inline without the plugin:
+Or define agents inline without the plugin:
 
 ```typescript
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { readFileSync } from "fs";
 
-const agentPrompt = readFileSync("agents/berserk-explore.md", "utf-8");
+const agentPrompt = readFileSync("agents/explore.md", "utf-8");
 
 for await (const message of query({
   prompt: "What services have the highest error rates?",
   options: {
     allowedTools: ["Bash", "Read", "Grep", "Glob", "Agent"],
     agents: {
-      "berserk-explore": {
+      explore: {
         description: "Explore and query observability data in Berserk",
         prompt: agentPrompt,
         tools: ["Bash", "Read", "Grep", "Glob"],

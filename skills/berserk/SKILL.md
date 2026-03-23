@@ -38,6 +38,21 @@ Use `berserk:incident-triage` when the user reports a problem ("errors are up", 
 curl -fsSL https://go.bzrk.dev | bash
 ```
 
+### Profiles and tables
+
+Profiles are named configurations pointing to Berserk instances:
+
+```bash
+bzrk profile list                # List configured profiles
+bzrk -P <profile> search "<KQL>" # Query using a specific profile
+```
+
+Discover tables with:
+
+```bash
+bzrk -P <profile> search ".show tables"
+```
+
 ### Query syntax
 
 ```bash
@@ -62,6 +77,45 @@ bzrk -P <profile> search "<KQL>" --since "<TIME>" [--until "<TIME>"] --desc "<wh
 - Relative: `"1h ago"`, `"2d ago"`, `"30m ago"`
 - Absolute: `"2024-01-01"`, `"2024-01-01T10:30:00"`
 - Special: `"now"`, `"today"`, `"yesterday"`
+
+### Permissive mode
+
+Berserk uses permissive field resolution by default — bare field names automatically resolve without needing a `$raw` prefix:
+
+```
+where severity_text == "ERROR"          ✅ works (permissive)
+where $raw.severity_text == "ERROR"     ❌ unnecessary
+```
+
+For arithmetic on dynamic fields, use `annotate` to declare types:
+
+```
+<table> | annotate response_time:real | summarize avg(response_time) by bin($time, 5m)
+```
+
+Use bracket notation for OTel attribute keys containing dots:
+
+```
+resource.attributes['service.name']     ✅ correct
+resource.attributes.service.name        ❌ ambiguous
+```
+
+### OTel data structure
+
+Berserk stores logs, traces, and metrics in a **single unified table** as separate rows. Detect signal type by which columns are populated:
+
+| Signal    | Detection                        | Key fields                                                        |
+| --------- | -------------------------------- | ----------------------------------------------------------------- |
+| **Logs**    | `where isnotnull(body)`          | `body`, `severity_text`, `severity_number`, `attributes`          |
+| **Traces**  | `where isnotnull($time_end)`     | `name`, `trace_id`, `span_id`, `parent_span_id`, `duration`, `kind` |
+| **Metrics** | `where isnotnull(metric.name)`   | `metric.name`, `metric.type`, `value`, `sum`, `count`            |
+
+Common fields across all signals:
+
+- `$time` — event timestamp
+- `resource.attributes['service.name']` — service identifier
+- `resource.attributes['service.version']` — deployed version
+- `trace_id` — trace correlation (logs and traces)
 
 ### Known limitations
 
