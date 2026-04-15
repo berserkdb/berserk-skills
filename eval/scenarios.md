@@ -13,16 +13,16 @@ bzrk -P prod search "<table> | where severity_text == 'ERROR' | take 20" --since
 
 ## Scenario 2: "What services are deployed?"
 **Ideal query count**: 2 (discover table + summarize)
-**Key**: Use bare `resource.attributes['service.name']` — no $raw needed
+**Key**: Use bare `resource['service.name']` — no $raw needed
 **Optimal**:
 ```bash
 bzrk -P prod search ".show tables"
-bzrk -P prod search "<table> | summarize count() by tostring(resource.attributes['service.name']) | order by count_ desc"
+bzrk -P prod search "<table> | summarize count() by tostring(resource['service.name']) | order by count_ desc"
 ```
 
 ## Scenario 3: "Investigate slow requests for service X"
 **Ideal query count**: 3 (discover + find traces + drill into slow ones)
-**Key**: Agent should know to filter traces by $time_end and use duration, not run fieldstats first
+**Key**: Agent should know to filter traces by end_time and use duration, not run fieldstats first
 
 ## Scenario 4: "What's causing the spike in errors?"
 **Ideal query count**: 3 (discover + otel-log-stats + log_template patterns)
@@ -30,7 +30,7 @@ bzrk -P prod search "<table> | summarize count() by tostring(resource.attributes
 
 ## Scenario 5: "Show me metrics for service X"
 **Ideal query count**: 3 (discover + list metric names + query specific metric)
-**Key**: Should go straight to metric.name filter, not explore entire schema
+**Key**: Should go straight to metric_name filter, not explore entire schema
 
 ## Scenario 6: "Unfamiliar instance — explore everything"
 **Ideal query count**: 4 (discover + fieldstats depth=1 + otel-log-stats + targeted query)
@@ -41,4 +41,4 @@ bzrk -P prod search "<table> | summarize count() by tostring(resource.attributes
 - `where level == "INFO"` works — no need for `where $raw.level == "INFO"`
 - Use `annotate response_time:real` when doing arithmetic on auto-projected fields
 - Only use explicit $raw when processing the full JSON blob via jq on TSV files
-- Bracket notation `resource.attributes['service.name']` is preferred for dotted OTel keys
+- Bracket notation `resource['service.name']` is preferred for dotted OTel keys

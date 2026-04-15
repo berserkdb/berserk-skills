@@ -112,7 +112,7 @@ Sharding fields control how data is distributed across segments for query perfor
 bzrk -P <profile> dataset sharding list <dataset>
 
 # Set sharding fields (replaces existing, format: "field_name=weight")
-bzrk -P <profile> dataset sharding set <dataset> "resource.attributes.service.name=1"
+bzrk -P <profile> dataset sharding set <dataset> "resource.service.name=1"
 
 # Clear all sharding fields
 bzrk -P <profile> dataset sharding clear <dataset>
