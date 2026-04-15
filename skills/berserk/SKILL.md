@@ -90,14 +90,14 @@ where $raw.severity_text == "ERROR"     ❌ unnecessary
 For arithmetic on dynamic fields, use `annotate` to declare types:
 
 ```
-<table> | annotate response_time:real | summarize avg(response_time) by bin($time, 5m)
+<table> | annotate response_time:real | summarize avg(response_time) by bin(timestamp, 5m)
 ```
 
 Use bracket notation for OTel attribute keys containing dots:
 
 ```
-resource.attributes['service.name']     ✅ correct
-resource.attributes.service.name        ❌ ambiguous
+resource['service.name']     ✅ correct
+resource.service.name        ❌ ambiguous
 ```
 
 ### OTel data structure
@@ -107,14 +107,14 @@ Berserk stores logs, traces, and metrics in a **single unified table** as separa
 | Signal    | Detection                        | Key fields                                                        |
 | --------- | -------------------------------- | ----------------------------------------------------------------- |
 | **Logs**    | `where isnotnull(body)`          | `body`, `severity_text`, `severity_number`, `attributes`          |
-| **Traces**  | `where isnotnull($time_end)`     | `name`, `trace_id`, `span_id`, `parent_span_id`, `duration`, `kind` |
-| **Metrics** | `where isnotnull(metric.name)`   | `metric.name`, `metric.type`, `value`, `sum`, `count`            |
+| **Traces**  | `where isnotnull(end_time)`      | `span_name`, `trace_id`, `span_id`, `parent_span_id`, `duration`, `span_kind` |
+| **Metrics** | `where isnotnull(metric_name)`   | `metric_name`, `metric_type`, `value`, `sum`, `count`            |
 
 Common fields across all signals:
 
-- `$time` — event timestamp
-- `resource.attributes['service.name']` — service identifier
-- `resource.attributes['service.version']` — deployed version
+- `timestamp` — event timestamp
+- `resource['service.name']` — service identifier
+- `resource['service.version']` — deployed version
 - `trace_id` — trace correlation (logs and traces)
 
 ### Known limitations
