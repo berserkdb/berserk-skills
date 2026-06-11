@@ -17,14 +17,14 @@ description: |
 
 **Route investigation tasks to the right specialist agent:**
 
-| Task | Agent | When to use |
-|------|-------|-------------|
-| Incident triage | `berserk:incident-triage` | Something is broken — find root cause across logs, traces, and metrics |
-| Trace analysis | `berserk:trace-analysis` | Explain why a request was slow or failed — build cause-and-effect narrative |
-| Log investigation | `berserk:otel-log` | Searching errors, log patterns, severity analysis, service log volume |
-| Trace investigation | `berserk:otel-trace` | Span queries, latency percentiles, trace correlation, service dependencies |
-| Metrics investigation | `berserk:otel-metric` | Metric discovery, time-series queries, histogram analysis, spike detection |
-| General exploration | `berserk:explore` | Schema discovery, unfamiliar instances, mixed-signal queries, fieldstats |
+| Task                  | Agent                     | When to use                                                                 |
+| --------------------- | ------------------------- | --------------------------------------------------------------------------- |
+| Incident triage       | `berserk:incident-triage` | Something is broken — find root cause across logs, traces, and metrics      |
+| Trace analysis        | `berserk:trace-analysis`  | Explain why a request was slow or failed — build cause-and-effect narrative |
+| Log investigation     | `berserk:otel-log`        | Searching errors, log patterns, severity analysis, service log volume       |
+| Trace investigation   | `berserk:otel-trace`      | Span queries, latency percentiles, trace correlation, service dependencies  |
+| Metrics investigation | `berserk:otel-metric`     | Metric discovery, time-series queries, histogram analysis, spike detection  |
+| General exploration   | `berserk:explore`         | Schema discovery, unfamiliar instances, mixed-signal queries, fieldstats    |
 
 Use `berserk:incident-triage` when the user reports a problem ("errors are up", "service is slow", "something broke"). Use `berserk:trace-analysis` when they have a specific trace or slow request to investigate. Use the signal-specific agents for targeted queries. Use `berserk:explore` when the signal type is unknown or the task spans multiple signal types.
 
@@ -87,11 +87,47 @@ where severity_text == "ERROR"          ✅ works (permissive)
 where $raw.severity_text == "ERROR"     ❌ unnecessary
 ```
 
-For arithmetic on dynamic fields, use `annotate` to declare types:
+Every bag field is `dynamic`. How a `dynamic` is handled depends on **where** it appears, and the
+two contexts behave differently on purpose:
+
+**1. Comparisons / scan predicates — compared by native type, never coerced.** A bare
+`where field == "x"` works directly on a dynamic field and keeps the segment indexes engaged
+(bloom / SHAR / range). **Never wrap a scan predicate in `tostring()` / `tolong()` / any function** —
+it forces per-row evaluation and disables pruning (see _Making queries fast_). A type that can't
+match is simply not equal (e.g. a numeric field `== "5"` is `false`, not coerced).
 
 ```
-<table> | annotate response_time:real | summarize avg(response_time) by bin(timestamp, 5m)
+where resource['service.name'] == "query"     ✅ bare — prunes chunks
+where tostring(resource['service.name']) == "query"   ❌ defeats the index, same result
 ```
+
+**2. Typed function arguments — auto-coerced via the `asXXX` family (extract-or-null).** When a
+dynamic field is passed to a function/operator that expects a concrete type, the binder injects the
+matching extractor (`asstring` / `aslong` / `asdouble` / `asdatetime` / …). `asT` **extracts** the
+value if it is already that type (or a dynamic carrying it), otherwise yields **null** — it never
+converts across types. So bag fields feed typed functions with no explicit cast, _when the stored
+value is that type_:
+
+```
+where tolower(level) == "error"                ✅ asstring(level) extracted, lowered
+project code = substring(attributes.path, 0, 8) ✅ when path is a string
+extend evt = parse_json(body)                  ✅ string → parse; already-structured → passthrough
+summarize avg(value) by bin(timestamp, 5m)     ✅ value auto-coerces numeric; timestamp is native datetime
+```
+
+**Use an explicit `to*()` only to cross types — and only in `project`/`extend`, never in a filter.**
+`asXXX` won't parse a string into a number/datetime (that would reify a new value); when a field is
+stored as the "wrong" type you must convert deliberately:
+
+```
+extend t = todatetime(attributes.event_time)   // event_time is a STRING → parse it (asdatetime would be null)
+extend n = tolong(attributes.count_str)         // numeric stored as a string → parse it
+```
+
+If a typed function returns unexpected nulls, the field isn't the type you assumed — check
+`gettype(field)`, then add the explicit `to*()` in a projection. Arithmetic on a dynamic numeric
+auto-coerces (`value * 2` works); `annotate <col>:real` is still useful to fix a column's type once
+up front for a whole pipeline.
 
 Use bracket notation for OTel attribute keys containing dots:
 
@@ -104,11 +140,11 @@ resource.service.name        ❌ ambiguous
 
 Berserk stores logs, traces, and metrics in a **single unified table** as separate rows. Detect signal type by which columns are populated:
 
-| Signal    | Detection                        | Key fields                                                        |
-| --------- | -------------------------------- | ----------------------------------------------------------------- |
-| **Logs**    | `where isnotnull(body)`          | `body`, `severity_text`, `severity_number`, `attributes`          |
-| **Traces**  | `where isnotnull(end_time)`      | `span_name`, `trace_id`, `span_id`, `parent_span_id`, `duration`, `span_kind` |
-| **Metrics** | `where isnotnull(metric_name)`   | `metric_name`, `metric_type`, `value`, `sum`, `count`            |
+| Signal      | Detection                      | Key fields                                                                    |
+| ----------- | ------------------------------ | ----------------------------------------------------------------------------- |
+| **Logs**    | `where isnotnull(body)`        | `body`, `severity_text`, `severity_number`, `attributes`                      |
+| **Traces**  | `where isnotnull(end_time)`    | `span_name`, `trace_id`, `span_id`, `parent_span_id`, `duration`, `span_kind` |
+| **Metrics** | `where isnotnull(metric_name)` | `metric_name`, `metric_type`, `value`, `sum`, `count`                         |
 
 Common fields across all signals:
 
