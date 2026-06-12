@@ -92,12 +92,18 @@ two contexts behave differently on purpose:
 
 **1. Comparisons / scan predicates — compared by native type, never coerced.** A bare
 `where field == "x"` works directly on a dynamic field and keeps the segment indexes engaged
-(bloom / SHAR / range). **Never wrap a scan predicate in `tostring()` / `tolong()` / any function** —
-it forces per-row evaluation and disables pruning (see _Making queries fast_). A type that can't
-match is simply not equal (e.g. a numeric field `== "5"` is `false`, not coerced).
+(bloom / SHAR / range). **Never wrap a scan predicate in `tostring()` / `tolower()` / `tolong()` / any
+function** — it forces per-row evaluation and disables pruning (see _Making queries fast_). A type
+that can't match is simply not equal (e.g. a numeric field `== "5"` is `false`, not coerced).
+
+For a **case-insensitive** match use `=~` (and `!~`), never `tolower(field) == "..."`. `=~` is a real
+operator that prunes: its chunk bloom is case-folded, so it skips chunks just like `==` — on dynamic
+fields too. `==` / `!=` stay case-sensitive.
 
 ```
 where resource['service.name'] == "query"     ✅ bare — prunes chunks
+where level =~ "error"                         ✅ case-insensitive AND prunes (case-folded bloom)
+where tolower(level) == "error"                ❌ function in a filter — defeats pruning; use =~
 where tostring(resource['service.name']) == "query"   ❌ defeats the index, same result
 ```
 
@@ -109,7 +115,7 @@ converts across types. So bag fields feed typed functions with no explicit cast,
 value is that type_:
 
 ```
-where tolower(level) == "error"                ✅ asstring(level) extracted, lowered
+extend lvl = tolower(level)                    ✅ asstring(level) extracted, lowered (a projection — for a filter use `level =~ "error"`)
 project code = substring(attributes.path, 0, 8) ✅ when path is a string
 extend evt = parse_json(body)                  ✅ string → parse; already-structured → passthrough
 summarize avg(value) by bin(timestamp, 5m)     ✅ value auto-coerces numeric; timestamp is native datetime
