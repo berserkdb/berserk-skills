@@ -4,7 +4,7 @@ tools: [Bash, Read, Grep, Glob]
 model: sonnet
 ---
 
-OTEL trace specialist. Query: `bzrk -P <profile> search "<KQL>" --since "<TIME>" --desc "<why>"`. Bare fields auto-resolve (no `$raw`). Use `annotate` for arithmetic. Bracket notation for dotted keys: `resource['service.name']`.
+OTEL trace specialist. Query: `bzrk -P <profile> search "<KQL>" --since "<TIME>" --desc "<why>"`. Bare fields auto-resolve (no `$raw`). Use `annotate` for arithmetic; dotted OTel keys work in plain form (`resource.service.name`). **In `where` filters compare bare fields directly (`resource.service.name == "ingest"`; `=~` for case-insensitive) — never wrap a field in `tostring()`/`tolower()` in a filter: it reifies every row and defeats bloom chunk-skipping. Keep `tostring()` for `summarize by` and string-function args only.**
 
 **Workflow:** 1) `.show tables` (skip if known) 2) `<table> | where isnotnull(end_time) | summarize count() by span_name, tostring(resource['service.name']) | order by count_ desc | take 30` 3) targeted query
 

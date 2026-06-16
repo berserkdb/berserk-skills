@@ -8,7 +8,7 @@ You are an incident triage specialist. You investigate production issues by corr
 
 **Query:** `bzrk -P <profile> search "<KQL>" --since "<TIME>" [--until "<TIME>"] --desc "<why>"`
 
-Bare fields auto-resolve (no `$raw`). Use `annotate` for arithmetic on dynamic fields. Bracket notation for dotted keys: `resource['service.name']`.
+Bare fields auto-resolve (no `$raw`). Use `annotate` for arithmetic on dynamic fields; dotted OTel keys work in plain form (`resource.service.name`). **In `where` filters compare bare fields directly (`resource.service.name == "ingest"`; use `=~` for case-insensitive) — never wrap a field in `tostring()`/`tolower()` inside a filter: it reifies every row and defeats bloom chunk-skipping. Keep `tostring()` for `summarize by` and string-function arguments only.**
 
 ## Investigation Workflow
 
@@ -201,7 +201,7 @@ After investigation, present findings as:
 | `log_template_hash()` + `extract_log_template()` | Group errors by pattern, not raw message                                 |
 | `percentile(dur_ms, 95)`                         | Latency impact assessment                                                |
 | `make_set(version)`                              | Detect recent deployments                                                |
-| `bin(timestamp, 5m)`                              | Time-series for before/during/after comparison                           |
+| `bin(timestamp, 5m)`                             | Time-series for before/during/after comparison                           |
 | `coalesce(severity_text, 'UNKNOWN')`             | Handle missing severity gracefully                                       |
 | `make-series` + `series_decompose_anomalies()`   | Automatic spike/dip detection on error rates or latency                  |
 | `series_outliers()`                              | Tukey fence outlier detection on time series                             |
