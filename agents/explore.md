@@ -94,7 +94,7 @@ Write your investigation query based on what Steps 1-2 revealed.
 | `mv-expand col`                      | Explode array into rows                   | `mv-expand bucket_counts` — one row per histogram bucket                     |
 | `mv-apply col to typeof(T) on (...)` | Per-element subquery                      | `mv-apply bc = bucket_counts to typeof(long) on (summarize total = sum(bc))` |
 | `parse`                              | Extract structured fields from strings    | `parse tostring(body) with 'error:' msg ' at ' location`                     |
-| `search "term"`                      | Full-text search across all columns       | `<table> \| search "timeout" \| take 10`                                     |
+| `search "term"`                      | Whole-term search over all columns and, as the first operator, all tables (`$table` names the source; `_`/`-`/`.` delimit terms, no stemming, `"term*"` for prefixes) | `<table> \| search "timeout" \| take 10`                                     |
 | `make-series`                        | Build time series for analysis            | `make-series cnt=count() on timestamp step 5m by svc`                        |
 | `series_decompose_anomalies(s)`      | Detect spikes/dips in time series         | Returns array: `1`=spike, `-1`=dip, `0`=normal                               |
 | `series_outliers(s)`                 | Tukey fence outlier detection             | Score >1.5 = mild outlier, >3.0 = extreme                                    |

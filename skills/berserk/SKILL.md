@@ -59,6 +59,39 @@ bzrk -P <profile> search ".show tables"
 bzrk -P <profile> search "<KQL>" --since "<TIME>" [--until "<TIME>"] --desc "<why>"
 ```
 
+### The `search` operator
+
+`search "term"` as the **first** operator scans **every table**, so you do not need to know (or
+look up) which table holds the data — that is what makes it the right way to open an
+investigation. Each row carries a `$table` column naming its source table:
+
+```bash
+bzrk -P <profile> search 'search "connection refused" | summarize n=count() by table=$table' --since "1h ago" --desc "which tables log this"
+```
+
+Narrow it once you know where to look: `search in (T1, T2) "term"`, or `<table> | search "term"`
+mid-pipeline. `search` also spans **all columns**, so a row can match on a field you were not
+thinking about — `scope_name`, a resource attribute, an attribute value — not only `body`.
+
+**Whole terms, not substrings.** `search "x"` lowers to `has "x"`: a case-insensitive literal
+match that must sit on **term boundaries**. A boundary is any non-alphanumeric character (or the
+start/end of the value), so `_`, `-`, `.`, `/`, `:` and whitespace all delimit — the same rule
+Microsoft Kusto uses. Nothing is stemmed, and the lookup string is matched literally rather than
+re-tokenized:
+
+| Query                        | in `rewrite_journal_sweeper` | in `Found rewrite journals` | in `journal-sweeper`   |
+| ---------------------------- | ---------------------------- | --------------------------- | ---------------------- |
+| `search "journal"`           | ✅ `_` delimits              | ❌ the term is `journals`   | ✅ `-` delimits        |
+| `search "journals"`          | ❌                           | ✅                          | ❌                     |
+| `search "journal_sweeper"`   | ✅                           | ❌                          | ❌ literal `_` ≠ `-`   |
+| `search "journal*"`          | ✅                           | ✅ `*` → `hasprefix`        | ✅                     |
+
+Wildcards: `"pre*"` → `hasprefix`, `"*suf"` → `hassuffix`, `"*mid*"` → `contains`, and bare
+`search "*"` matches every row.
+
+**An empty full-text result is usually a plural or delimiter mismatch, not missing data.** Retry
+with the exact term or a `*` wildcard before suspecting the emitter or the pipeline.
+
 ### Common options
 
 | Option      | Description                               |
