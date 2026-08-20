@@ -108,32 +108,33 @@ with the exact term or a `*` wildcard before suspecting the emitter or the pipel
 
 ### Streaming results (Claude Code Monitor)
 
-`bzrk search` streams **complete replacement snapshots** over slices scanned so far, newest first. The window widens backwards in time. Each increment looks like a finished table. It is not. `min(timestamp)`, `count()`, and `avg()` on an early increment are real numbers for the wrong question.
+`bzrk search` streams **complete replacement snapshots** over slices scanned so far, newest first. Each increment looks like a finished table. It is not the full-window answer — but it *is* a lower bound (or a newest-first listing) you can test.
 
-Never treat the first increment — or `| head` of a streaming run — as the answer.
+**Do not wait for `# Query Complete` by default.** Arm a Monitor, and on each increment check a **decidable predicate**. If it holds, `kill` the query. Completeness is only required when a partial cannot decide the question.
 
-**Claude Code:** do not block on `bzrk search` and read stdout. Start the query in the background and use the **Monitor** tool to watch increment headers only. Every Monitor stdout line wakes you, so emit headers, not the table (`grep --line-buffered`; plain `grep` buffers and delays events):
+Write the predicate *before* starting the query. Examples:
+
+- existence: any matching row
+- threshold: `n >= 1000`, ingested bytes `>= 10000000`
+- newest-N: `take 50` already full
+
+A running `count()` / `sum(bytes)` **can** stop early when the question is a threshold (partial is a lower bound). Exact `min`/`max`/`avg`/`count` over the whole requested window, or absence ("none at all"), cannot.
+
+**Claude Code:** background `bzrk search` (no `--no-stream`). Monitor increment **headers** (`grep --line-buffered`; plain `grep` delays events). Headers do not contain the summarize values — on each `# Increment N`, Read `incremental/PrimaryResult/N.tsv` and evaluate the predicate. Persistent watch (`persistent: true`).
 
 ```bash
 log=$(mktemp)
 bzrk -P <profile> search "<KQL>" --since "<TIME>" --desc "<why>" >"$log" 2>&1 &
 echo $! >"${log}.pid"
-# Monitor command:
+# Monitor command (headers only — you Read the TSV on each wake):
 tail -F "$log" | grep --line-buffered -E '^# (Increment|Query Complete)'
 ```
 
-On each `# Increment N … X/Y time slices complete` event, decide whether the **original question** is decidable, then `kill "$(cat "${log}.pid")"` or keep watching. On `# Query Complete`, the result is final.
+On `# Increment N`: Read the TSV → if predicate holds, `kill "$(cat "${log}.pid")"` and treat the result as **partial** (say so). On `# Query Complete` without the predicate firing, that is the final result.
 
-| Question | Stop early? |
-| -------- | ----------- |
-| Existence ("any errors from X?") / newest-N (`take`, last N events) | yes, once the partial contains the match / N rows |
-| Absence ("no errors?") | no — wait for `# Query Complete` |
-| `min` / `max` / `count` / `avg` / rate over the requested window | no — wait for `# Query Complete` |
-| Distinct listing (services in the window) | only if the set is stable across increments and coverage is high |
+Never treat increment 1 as the answer just because it has a table. `| head` of a streaming run is the same bug.
 
-After stop, read `~/.cache/bzrk/history/<trace_id>/PrimaryResult.tsv` (or the latest `incremental/PrimaryResult/N.tsv`). If you killed before `# Query Complete`, the result is **partial** — say so, with the slice coverage from the header. A partial zero is not absence.
-
-If Monitor is unavailable (OpenCode, older Claude), pass `--no-stream` so stdout is the completed result only.
+If Monitor is unavailable, `--no-stream` (final only) — you lose early-stop.
 
 ### Time formats
 

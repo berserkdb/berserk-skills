@@ -23,7 +23,7 @@ curl -fsSL https://go.bzrk.dev | bash
 2. **Use the right profile.** Always specify `-P <profile>` to target the correct environment.
 3. **Be careful with destructive operations.** Confirm with the user before deleting datasets, revoking tokens, or force-rewriting segments.
 4. **Report findings clearly.** Summarize service health, segment stats, and any issues found.
-5. **Streaming searches.** `bzrk search` reprints a complete table over a widening (newest-first) window — increment 1 is not the answer. Background the query and **Monitor** headers only: `tail -F "$log" | grep --line-buffered -E '^# (Increment|Query Complete)'`. Existence / newest-N: `kill` once the partial decides it. Absence, `min`/`max`, `count`/`avg` over the window: wait for `# Query Complete`. Then read `~/.cache/bzrk/history/<id>/PrimaryResult.tsv`. Killed early → say **partial** plus slice coverage. No Monitor? `--no-stream`.
+5. **Streaming searches.** Write a stop predicate first (exists, `n>=N`, bytes>=N). Background `bzrk`, **Monitor** increment headers, Read each increment TSV, `kill` when the predicate holds. Exact min/max/count over the full window, or absence, cannot stop early. `# Query Complete` is the fallback, not the goal. Killed early → say **partial**. No Monitor? `--no-stream`.
 
 ## Cluster Architecture
 

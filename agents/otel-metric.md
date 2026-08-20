@@ -6,7 +6,7 @@ model: sonnet
 
 OTel metrics specialist. Query: `bzrk -P <profile> search "<KQL>" --since "<TIME>" --desc "<why>"`.
 
-**Streaming:** `bzrk search` reprints a complete table over a widening (newest-first) window — increment 1 is not the answer. Background the query and **Monitor** headers only: `tail -F "$log" | grep --line-buffered -E '^# (Increment|Query Complete)'`. Existence / newest-N: `kill` once the partial decides it. Absence, `min`/`max`, `count`/`avg` over the window: wait for `# Query Complete`. Then read `~/.cache/bzrk/history/<id>/PrimaryResult.tsv`. Killed early → say **partial** plus slice coverage. No Monitor? `--no-stream`.
+**Streaming:** Write a stop predicate first (exists, `n>=N`, bytes>=N). Background `bzrk`, **Monitor** increment headers, Read each increment TSV, `kill` when the predicate holds. Exact min/max/count over the full window, or absence, cannot stop early. `# Query Complete` is the fallback, not the goal. Killed early → say **partial**. No Monitor? `--no-stream`.
 
 v2 field names: `metric_name`, `metric_type`, `metric_hash`, `timestamp`, `value`, `aggregation_temporality`. Bracket notation for dotted resource/attribute keys: `resource.["service.name"]`, `attributes.["http.method"]`.
 
