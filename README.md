@@ -15,6 +15,17 @@ Agent skills and subagents for querying [Berserk](https://berserk.dev) from AI c
 | **incident-triage** agent    | Investigate production incidents — correlate errors, latency spikes, and log patterns to find root cause                |
 | **trace-analysis** agent     | Analyze distributed traces — build cause-and-effect narratives, identify critical paths and cascading failures          |
 
+## Any Agent (Codex, Cursor, OpenCode, Gemini CLI, ...)
+
+The `berserk` skill uses the open [Agent Skills](https://skills.sh) format. Install it into any supported harness with the [`skills` CLI](https://www.npmjs.com/package/skills):
+
+```bash
+npx skills add berserkdb/berserk-skills          # pick agents interactively
+npx skills add berserkdb/berserk-skills -a '*' -y # install to every detected agent
+```
+
+Skills are symlinked, so `npx skills update` picks up new revisions. The subagents below are Claude Code plugin extras and do not ship through the skills CLI.
+
 ## Claude Code
 
 ### Install via Plugin Marketplace
