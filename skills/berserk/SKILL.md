@@ -47,6 +47,10 @@ bzrk profile list                # List configured profiles
 bzrk -P <profile> search "<KQL>" # Query using a specific profile
 ```
 
+Profiles can be **repo-bound** via a `.bzrk_config` file: such a profile only resolves when bzrk
+runs from inside that repository. On `Profile '<name>' not found`, cd into the project directory
+and retry before concluding the profile does not exist.
+
 Discover tables with:
 
 ```bash
@@ -79,12 +83,12 @@ start/end of the value), so `_`, `-`, `.`, `/`, `:` and whitespace all delimit �
 Microsoft Kusto uses. Nothing is stemmed, and the lookup string is matched literally rather than
 re-tokenized:
 
-| Query                        | in `rewrite_journal_sweeper` | in `Found rewrite journals` | in `journal-sweeper`   |
-| ---------------------------- | ---------------------------- | --------------------------- | ---------------------- |
-| `search "journal"`           | ✅ `_` delimits              | ❌ the term is `journals`   | ✅ `-` delimits        |
-| `search "journals"`          | ❌                           | ✅                          | ❌                     |
-| `search "journal_sweeper"`   | ✅                           | ❌                          | ❌ literal `_` ≠ `-`   |
-| `search "journal*"`          | ✅                           | ✅ `*` → `hasprefix`        | ✅                     |
+| Query                      | in `rewrite_journal_sweeper` | in `Found rewrite journals` | in `journal-sweeper` |
+| -------------------------- | ---------------------------- | --------------------------- | -------------------- |
+| `search "journal"`         | ✅ `_` delimits              | ❌ the term is `journals`   | ✅ `-` delimits      |
+| `search "journals"`        | ❌                           | ✅                          | ❌                   |
+| `search "journal_sweeper"` | ✅                           | ❌                          | ❌ literal `_` ≠ `-` |
+| `search "journal*"`        | ✅                           | ✅ `*` → `hasprefix`        | ✅                   |
 
 Wildcards: `"pre*"` → `hasprefix`, `"*suf"` → `hassuffix`, `"*mid*"` → `contains`, and bare
 `search "*"` matches every row.
@@ -106,35 +110,83 @@ with the exact term or a `*` wildcard before suspecting the emitter or the pipel
 | `--no-stream` | Print only the completed result           |
 | `--desc`      | Short description of WHY the query is run |
 
-### Streaming results (Claude Code Monitor)
+### Streaming results (stop predicates)
 
 `bzrk search` streams **replacement snapshots over the same `--since`/`--until` window**. Each increment is whatever has been scanned so far — more coverage of that window, not a different range. Slice scheduling often starts at the right edge of the grid, but that is not a guarantee (concurrent workers, cache reuse, joins). Never infer "this is the newest data" or "this `min(timestamp)` is global" from an early increment. An increment looks like a finished table; it is only a lower bound (or a partial listing) you can test.
 
-**Do not wait for `# Query Complete` by default.** Arm a Monitor, and on each increment check a **decidable predicate**. If it holds, `kill` the query. Completeness is only required when a partial cannot decide the question.
+**Do not wait for `# Query Complete` by default.** Write a **decidable predicate** _before_ starting the query, and stop the moment a completed snapshot decides it. Completeness is only required when a partial cannot decide the question.
 
-Write the predicate *before* starting the query. Examples:
+Predicate examples:
 
-- existence: any matching row
+- existence: any matching row (`rows >= 1`)
 - threshold: `n >= 1000`, ingested bytes `>= 10000000`
-- newest-N: `take 50` already full
+- newest-N: `take 50` already full (`rows >= 50`)
 
-A running `count()` / `sum(bytes)` **can** stop early when the question is a threshold (partial is a lower bound). Exact `min`/`max`/`avg`/`count` over the whole requested window, or absence ("none at all"), cannot.
+A running `count()` / `sum(bytes)` **can** stop early when the question is a threshold (partial is a lower bound). Exact `min`/`max`/`avg`/`count` over the whole requested window, or absence ("none at all"), cannot — those need `# Query Complete`.
 
-**Claude Code:** background `bzrk search` (no `--no-stream`). Monitor increment **headers** (`grep --line-buffered`; plain `grep` delays events). Headers do not contain the summarize values — on each `# Increment N`, Read `incremental/PrimaryResult/N.tsv` and evaluate the predicate. Persistent watch (`persistent: true`).
+The predicate is the contract; *how* it is watched is an implementation detail. `--stop-when` is the built-in monitor — prefer it whenever the predicate fits its grammar. Claude Code's Monitor tool is the fallback mechanism, not the definition of "monitoring".
+
+**Preferred: let the CLI stop itself with `--stop-when`.** One foreground command, no background job, no kill:
+
+```bash
+bzrk -P <profile> search "<KQL> | summarize n=count()" --since "7d ago" \
+  --stop-when "n >= 50" --desc "<why>"
+```
+
+The predicate is `<ident> <op> <number>`: `<ident>` is `rows` (snapshot row count) or a column name (first row's numeric value); `<op>` is one of `>=`, `<=`, `>`, `<`, `==`, `!=`. A column predicate reads only the FIRST row — for "any row crosses X" over a multi-row `summarize`, sort that column to the top (`| summarize n=count() by service | sort by n desc` with `--stop-when "n > 1000"`). When it holds on a completed snapshot the CLI cancels the scan and prints a `# Stopped Early` header naming the predicate, the increment, and (in agent mode) the absolute path of the deciding TSV:
+
+```
+# Stopped Early - predicate "n >= 50" held at increment 1 - 1 rows - /home/you/.cache/bzrk/history/<id>/incremental/PrimaryResult/1.tsv
+```
+
+Report the value as a **partial lower bound** over the window (say so), never as the full-window total. If the query instead runs to `# Query Complete`, that is the exact final result.
+
+**Predicate not numeric? Use `--stop-cmd`** — a shell command run against each completed snapshot's TSV (absolute path as `$1`; also `BZRK_SNAPSHOT_TSV`, `BZRK_INCREMENT`, `BZRK_ROWS`). Exit codes follow grep: 0 stops, 1 continues, anything else aborts. Still one foreground command. Unix only; mutually exclusive with `--stop-when`.
+
+```bash
+bzrk -P <profile> search "<KQL>" --since "<TIME>" --stop-cmd 'grep -q OOMKilled "$1"' --desc "<why>"
+bzrk -P <profile> search "<KQL>" --since "<TIME>" --stop-cmd '[ "$(tail -n +2 "$1" | wc -l)" -ge 50 ]' --desc "<why>"
+```
+
+**Fallback: Monitor the headers yourself** — only when the stop decision needs judgment (you must read the data, not mechanically test it) or on an older CLI without the stop flags. Background `bzrk search` (no `--no-stream`) and Monitor increment **headers** (`grep --line-buffered`; plain `grep` delays events). Each header line is self-contained and ends with the **absolute path** of its TSV snapshot:
+
+```
+# Increment 4 - at 2026-08-20T12:01:42Z - 3/158 time slices complete - 1 rows (7b) - /home/you/.cache/bzrk/history/<id>/incremental/PrimaryResult/4.tsv
+# Query Complete - 1 rows (7b) - /home/you/.cache/bzrk/history/<id>/PrimaryResult.tsv
+```
+
+Read that exact path from the event — never construct it yourself (it is under `~/.cache/bzrk/history/`, NOT relative to your cwd).
+
+Launch with this block **verbatim as separate lines** — the `&` must background only the bzrk
+line. Never fold it into a `&&` chain with a trailing `&` (that backgrounds the whole chain and
+the variables never get set):
 
 ```bash
 log=$(mktemp)
 bzrk -P <profile> search "<KQL>" --since "<TIME>" --desc "<why>" >"$log" 2>&1 &
 echo $! >"${log}.pid"
-# Monitor command (headers only — you Read the TSV on each wake):
+```
+
+**Then check the log once before arming a Monitor** — small windows often finish in seconds:
+
+- log already shows `# Query Complete` → that line's path is the final result; done, no Monitor.
+- latest `# Increment N` already decides the predicate → decide now, kill, done, no Monitor.
+- otherwise arm the Monitor (persistent watch, `persistent: true`):
+
+```bash
+# Monitor command (headers only — each event ends with the TSV path you Read):
 tail -F "$log" | grep --line-buffered -E '^# (Increment|Query Complete)'
 ```
 
-On `# Increment N`: Read the TSV → if predicate holds, `kill "$(cat "${log}.pid")"` and treat the result as **partial** (say so). On `# Query Complete` without the predicate firing, that is the final result.
+On `# Increment N`: Read the TSV at the path the event line ends with → if predicate holds, `kill "$(cat "${log}.pid")"` and treat the result as **partial** (say so). On `# Query Complete` without the predicate firing, that is the final result (its own path, same line).
+
+**Stop the query ONLY with `kill "$(cat "${log}.pid")"`.** Never `pkill -f` on the query text — it matches your own `tail`/`grep`/shell (which carry the same string) and kills them instead of, or along with, the query.
 
 Never treat increment 1 as the answer just because it has a table. `| head` of a streaming run is the same bug.
 
-If Monitor is unavailable, `--no-stream` (final only) — you lose early-stop.
+If neither the stop flags nor Monitor are available, `--no-stream` (final only) — you lose early-stop.
+
+> _Rollout note: CLI builds released before `--stop-when` need the Monitor fallback for every early-stop; builds before the header carried the path also print it on a separate `Saved in:` line instead (home-shortened with `~`) — take it from there and expand `~` yourself._
 
 ### Time formats
 
@@ -213,7 +265,7 @@ where x == int(null)                           ❌ never true — not a null che
 ```
 
 **Dynamics compare by the STORED value — never parsed.** `where attrs.status == 500` matches the
-*number* 500, not the string `"500"`. This is a deliberate divergence from ADX, which parses and
+_number_ 500, not the string `"500"`. This is a deliberate divergence from ADX, which parses and
 even truncates (`dynamic(2.5) == long(2)` is true there; false here — `dynamic(2.0) == 2` is true
 in both, free numeric widening). If an ADX-idiomatic comparison comes back empty, the stored type
 isn't what you assumed: check `gettype(field)` and normalize with `to*()` in a projection, never in
