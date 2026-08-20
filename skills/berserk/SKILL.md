@@ -94,16 +94,46 @@ with the exact term or a `*` wildcard before suspecting the emitter or the pipel
 
 ### Common options
 
-| Option      | Description                               |
-| ----------- | ----------------------------------------- |
-| `--json`    | Output as JSON                            |
-| `--csv`     | Output as CSV                             |
-| `--since`   | Start time (default: "1h ago")            |
-| `--until`   | End time (default: "now")                 |
-| `--stats`   | Show execution statistics                 |
-| `--timeout` | Query timeout in seconds (default: 300)   |
-| `--agent`   | Enable agent mode (auto-detected usually) |
-| `--desc`    | Short description of WHY the query is run |
+| Option        | Description                               |
+| ------------- | ----------------------------------------- |
+| `--json`      | Output as JSON                            |
+| `--csv`       | Output as CSV                             |
+| `--since`     | Start time (default: "1h ago")            |
+| `--until`     | End time (default: "now")                 |
+| `--stats`     | Show execution statistics                 |
+| `--timeout`   | Query timeout in seconds (default: 300)   |
+| `--agent`     | Enable agent mode (auto-detected usually) |
+| `--no-stream` | Print only the completed result           |
+| `--desc`      | Short description of WHY the query is run |
+
+### Streaming results (Claude Code Monitor)
+
+`bzrk search` streams **complete replacement snapshots** over slices scanned so far, newest first. The window widens backwards in time. Each increment looks like a finished table. It is not. `min(timestamp)`, `count()`, and `avg()` on an early increment are real numbers for the wrong question.
+
+Never treat the first increment — or `| head` of a streaming run — as the answer.
+
+**Claude Code:** do not block on `bzrk search` and read stdout. Start the query in the background and use the **Monitor** tool to watch increment headers only. Every Monitor stdout line wakes you, so emit headers, not the table (`grep --line-buffered`; plain `grep` buffers and delays events):
+
+```bash
+log=$(mktemp)
+bzrk -P <profile> search "<KQL>" --since "<TIME>" --desc "<why>" >"$log" 2>&1 &
+echo $! >"${log}.pid"
+# Monitor command:
+tail -F "$log" | grep --line-buffered -E '^# (Increment|Query Complete)'
+```
+
+On each `# Increment N … X/Y time slices complete` event, decide whether the **original question** is decidable, then `kill "$(cat "${log}.pid")"` or keep watching. On `# Query Complete`, the result is final.
+
+| Question | Stop early? |
+| -------- | ----------- |
+| Existence ("any errors from X?") / newest-N (`take`, last N events) | yes, once the partial contains the match / N rows |
+| Absence ("no errors?") | no — wait for `# Query Complete` |
+| `min` / `max` / `count` / `avg` / rate over the requested window | no — wait for `# Query Complete` |
+| Distinct listing (services in the window) | only if the set is stable across increments and coverage is high |
+
+After stop, read `~/.cache/bzrk/history/<trace_id>/PrimaryResult.tsv` (or the latest `incremental/PrimaryResult/N.tsv`). If you killed before `# Query Complete`, the result is **partial** — say so, with the slice coverage from the header. A partial zero is not absence.
+
+If Monitor is unavailable (OpenCode, older Claude), pass `--no-stream` so stdout is the completed result only.
 
 ### Time formats
 
