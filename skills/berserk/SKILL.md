@@ -108,7 +108,7 @@ with the exact term or a `*` wildcard before suspecting the emitter or the pipel
 
 ### Streaming results (Claude Code Monitor)
 
-`bzrk search` streams **complete replacement snapshots** over slices scanned so far, newest first. Each increment looks like a finished table. It is not the full-window answer — but it *is* a lower bound (or a newest-first listing) you can test.
+`bzrk search` streams **replacement snapshots over the same `--since`/`--until` window**. Each increment is whatever has been scanned so far — more coverage of that window, not a different range. Slice scheduling often starts at the right edge of the grid, but that is not a guarantee (concurrent workers, cache reuse, joins). Never infer "this is the newest data" or "this `min(timestamp)` is global" from an early increment. An increment looks like a finished table; it is only a lower bound (or a partial listing) you can test.
 
 **Do not wait for `# Query Complete` by default.** Arm a Monitor, and on each increment check a **decidable predicate**. If it holds, `kill` the query. Completeness is only required when a partial cannot decide the question.
 
