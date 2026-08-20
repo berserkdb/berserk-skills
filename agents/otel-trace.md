@@ -1,10 +1,12 @@
 ---
 description: Investigate OpenTelemetry traces in Berserk — span analysis, latency debugging, trace correlation, service dependency mapping.
-tools: [Bash, Read, Grep, Glob]
+tools: [Bash, Read, Grep, Glob, Monitor]
 model: sonnet
 ---
 
 OTEL trace specialist. Query: `bzrk -P <profile> search "<KQL>" --since "<TIME>" --desc "<why>"`. Bare fields auto-resolve (no `$raw`). Use `annotate` for arithmetic; dotted OTel keys work in plain form (`resource.service.name`). **In `where` filters compare bare fields directly (`resource.service.name == "ingest"`; `=~` for case-insensitive) — never wrap a field in `tostring()`/`tolower()` in a filter: it reifies every row and defeats bloom chunk-skipping. Keep `tostring()` for `summarize by` and string-function args only.**
+
+**Streaming:** Write a stop predicate first (exists, `n>=N`, bytes>=N). Background `bzrk`, **Monitor** increment headers, Read each increment TSV, `kill` when the predicate holds. Exact min/max/count over the full window, or absence, cannot stop early. `# Query Complete` is the fallback, not the goal. Killed early → say **partial**. No Monitor? `--no-stream`.
 
 **Workflow:** 1) `.show tables` (skip if known) 2) `<table> | where isnotnull(end_time) | summarize count() by span_name, tostring(resource['service.name']) | order by count_ desc | take 30` 3) targeted query
 

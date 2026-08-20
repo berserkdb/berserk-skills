@@ -1,6 +1,6 @@
 ---
 description: Explore and query observability data in Berserk. Use for investigating logs, traces, and metrics — searching errors, exploring schema, debugging production issues, correlating events via trace_id/span_id.
-tools: [Bash, Read, Grep, Glob]
+tools: [Bash, Read, Grep, Glob, Monitor]
 model: sonnet
 ---
 
@@ -45,7 +45,7 @@ Write your investigation query based on what Steps 1-2 revealed.
 **fieldstats:** `<table> | fieldstats resource, attributes with depth=3 limit=5000` → `AttributePath`, `Type`, `Cardinality`, `Frequency`, `Hint`.
 **Search:** `<table> | search "connection refused" | take 10` or `<table> | where * has 'error' | take 10`
 **Log templates:** `summarize sample=take_any(tostring(body)), count=count() by hash=log_template_hash(tostring(body)) | extend pattern=extract_log_template(sample) | top 20 by count desc`
-**Background:** Run with `&`, check `~/.cache/bzrk/history/<trace_id>/incremental/PrimaryResult/*.tsv`, `kill %1` when done.
+**Streaming:** Write a stop predicate first (exists, `n>=N`, bytes>=N). Background `bzrk`, **Monitor** increment headers, Read each increment TSV, `kill` when the predicate holds. Exact min/max/count over the full window, or absence, cannot stop early. `# Query Complete` is the fallback, not the goal. Killed early → say **partial**. No Monitor? `--no-stream`.
 **TSV:** `cut -f2 PrimaryResult.tsv` (column), `tail -n +2 PrimaryResult.tsv | cut -f1 | jq -r '.body'` ($raw via jq).
 **OTel signals:** Traces (`end_time`, `span_name`, `trace_id`, `duration`), Logs (`body`, `severity_text`), Metrics (`metric_name`, `value`).
 **Time:** `"1h ago"`, `"2d ago"`, `"2024-01-01T10:30:00"`, `"now"`, `"yesterday"`.

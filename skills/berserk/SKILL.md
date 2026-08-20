@@ -94,16 +94,47 @@ with the exact term or a `*` wildcard before suspecting the emitter or the pipel
 
 ### Common options
 
-| Option      | Description                               |
-| ----------- | ----------------------------------------- |
-| `--json`    | Output as JSON                            |
-| `--csv`     | Output as CSV                             |
-| `--since`   | Start time (default: "1h ago")            |
-| `--until`   | End time (default: "now")                 |
-| `--stats`   | Show execution statistics                 |
-| `--timeout` | Query timeout in seconds (default: 300)   |
-| `--agent`   | Enable agent mode (auto-detected usually) |
-| `--desc`    | Short description of WHY the query is run |
+| Option        | Description                               |
+| ------------- | ----------------------------------------- |
+| `--json`      | Output as JSON                            |
+| `--csv`       | Output as CSV                             |
+| `--since`     | Start time (default: "1h ago")            |
+| `--until`     | End time (default: "now")                 |
+| `--stats`     | Show execution statistics                 |
+| `--timeout`   | Query timeout in seconds (default: 300)   |
+| `--agent`     | Enable agent mode (auto-detected usually) |
+| `--no-stream` | Print only the completed result           |
+| `--desc`      | Short description of WHY the query is run |
+
+### Streaming results (Claude Code Monitor)
+
+`bzrk search` streams **replacement snapshots over the same `--since`/`--until` window**. Each increment is whatever has been scanned so far — more coverage of that window, not a different range. Slice scheduling often starts at the right edge of the grid, but that is not a guarantee (concurrent workers, cache reuse, joins). Never infer "this is the newest data" or "this `min(timestamp)` is global" from an early increment. An increment looks like a finished table; it is only a lower bound (or a partial listing) you can test.
+
+**Do not wait for `# Query Complete` by default.** Arm a Monitor, and on each increment check a **decidable predicate**. If it holds, `kill` the query. Completeness is only required when a partial cannot decide the question.
+
+Write the predicate *before* starting the query. Examples:
+
+- existence: any matching row
+- threshold: `n >= 1000`, ingested bytes `>= 10000000`
+- newest-N: `take 50` already full
+
+A running `count()` / `sum(bytes)` **can** stop early when the question is a threshold (partial is a lower bound). Exact `min`/`max`/`avg`/`count` over the whole requested window, or absence ("none at all"), cannot.
+
+**Claude Code:** background `bzrk search` (no `--no-stream`). Monitor increment **headers** (`grep --line-buffered`; plain `grep` delays events). Headers do not contain the summarize values — on each `# Increment N`, Read `incremental/PrimaryResult/N.tsv` and evaluate the predicate. Persistent watch (`persistent: true`).
+
+```bash
+log=$(mktemp)
+bzrk -P <profile> search "<KQL>" --since "<TIME>" --desc "<why>" >"$log" 2>&1 &
+echo $! >"${log}.pid"
+# Monitor command (headers only — you Read the TSV on each wake):
+tail -F "$log" | grep --line-buffered -E '^# (Increment|Query Complete)'
+```
+
+On `# Increment N`: Read the TSV → if predicate holds, `kill "$(cat "${log}.pid")"` and treat the result as **partial** (say so). On `# Query Complete` without the predicate firing, that is the final result.
+
+Never treat increment 1 as the answer just because it has a table. `| head` of a streaming run is the same bug.
+
+If Monitor is unavailable, `--no-stream` (final only) — you lose early-stop.
 
 ### Time formats
 

@@ -1,10 +1,12 @@
 ---
 description: Investigate OpenTelemetry logs in Berserk — error patterns, log templates, severity analysis, service-level log exploration.
-tools: [Bash, Read, Grep, Glob]
+tools: [Bash, Read, Grep, Glob, Monitor]
 model: sonnet
 ---
 
 OTEL log specialist. Query: `bzrk -P <profile> search "<KQL>" --since "<TIME>" --desc "<why>"`. Bare fields auto-resolve (no `$raw`). Use `annotate` for arithmetic; dotted OTel keys work in plain form (`resource.service.name`). **In `where` filters compare bare fields directly (`resource.service.name == "ingest"`; `=~` for case-insensitive) — never wrap a field in `tostring()`/`tolower()` in a filter: it reifies every row and defeats bloom chunk-skipping. Keep `tostring()` for `summarize by` and string-function args only.**
+
+**Streaming:** Write a stop predicate first (exists, `n>=N`, bytes>=N). Background `bzrk`, **Monitor** increment headers, Read each increment TSV, `kill` when the predicate holds. Exact min/max/count over the full window, or absence, cannot stop early. `# Query Complete` is the fallback, not the goal. Killed early → say **partial**. No Monitor? `--no-stream`.
 
 **Workflow:** 1) `.show tables` (skip if known) 2) `<table> | where isnotnull(body) | otel-log-stats attributes, resource severity=severity_number` — gives schema + top values in one query, skip fieldstats 3) targeted query
 

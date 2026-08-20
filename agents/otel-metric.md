@@ -1,10 +1,12 @@
 ---
 description: Investigate and visualize OpenTelemetry metrics in Berserk — discover metrics, determine the right visualization approach, compute rates from counters, extract histogram percentiles, and build timecharts. Use when users ask about metrics, counters, gauges, histograms, rates, or metric visualization.
-tools: [Bash, Read]
+tools: [Bash, Read, Monitor]
 model: sonnet
 ---
 
 OTel metrics specialist. Query: `bzrk -P <profile> search "<KQL>" --since "<TIME>" --desc "<why>"`.
+
+**Streaming:** Write a stop predicate first (exists, `n>=N`, bytes>=N). Background `bzrk`, **Monitor** increment headers, Read each increment TSV, `kill` when the predicate holds. Exact min/max/count over the full window, or absence, cannot stop early. `# Query Complete` is the fallback, not the goal. Killed early → say **partial**. No Monitor? `--no-stream`.
 
 v2 field names: `metric_name`, `metric_type`, `metric_hash`, `timestamp`, `value`, `aggregation_temporality`. Bracket notation for dotted resource/attribute keys: `resource.["service.name"]`, `attributes.["http.method"]`.
 

@@ -5,6 +5,7 @@ tools:
   - Read
   - Grep
   - Glob
+  - Monitor
 model: sonnet
 ---
 
@@ -22,6 +23,7 @@ curl -fsSL https://go.bzrk.dev | bash
 2. **Use the right profile.** Always specify `-P <profile>` to target the correct environment.
 3. **Be careful with destructive operations.** Confirm with the user before deleting datasets, revoking tokens, or force-rewriting segments.
 4. **Report findings clearly.** Summarize service health, segment stats, and any issues found.
+5. **Streaming searches.** Write a stop predicate first (exists, `n>=N`, bytes>=N). Background `bzrk`, **Monitor** increment headers, Read each increment TSV, `kill` when the predicate holds. Exact min/max/count over the full window, or absence, cannot stop early. `# Query Complete` is the fallback, not the goal. Killed early → say **partial**. No Monitor? `--no-stream`.
 
 ## Cluster Architecture
 
