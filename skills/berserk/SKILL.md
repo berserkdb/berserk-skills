@@ -285,13 +285,23 @@ resource.service.name        ❌ ambiguous
 
 ### OTel data structure
 
-Berserk stores logs, traces, and metrics in a **single unified table** as separate rows. Detect signal type by which columns are populated:
+Berserk stores logs, traces, and metrics in a **single unified table** as separate rows. Select a signal with a predicate the chunk index can prune on:
 
-| Signal      | Detection                      | Key fields                                                                    |
-| ----------- | ------------------------------ | ----------------------------------------------------------------------------- |
-| **Logs**    | `where isnotnull(body)`        | `body`, `severity_text`, `severity_number`, `attributes`                      |
-| **Traces**  | `where isnotnull(end_time)`    | `span_name`, `trace_id`, `span_id`, `parent_span_id`, `duration`, `span_kind` |
-| **Metrics** | `where isnotnull(metric_name)` | `metric_name`, `metric_type`, `value`, `sum`, `count`                         |
+| Signal      | Selector                                            | Key fields                                                                    |
+| ----------- | --------------------------------------------------- | ----------------------------------------------------------------------------- |
+| **Logs**    | `where observed_time >= datetime(1970-01-01)`       | `body`, `severity_text`, `severity_number`, `attributes`                      |
+| **Traces**  | `where end_time >= datetime(1970-01-01)`            | `span_name`, `trace_id`, `span_id`, `parent_span_id`, `duration`, `span_kind` |
+| **Metrics** | `annotate metric_name:string \| where isnotnull(metric_name)` | `metric_name`, `metric_type`, `value`, `sum`, `count`             |
+
+**Not a presence test.** `isnotnull(body)` / `isnotnull(end_time)` reach no chunk
+index, so they scan every chunk in the window. A datetime *comparison* prunes via
+the min/max index, and `annotate metric_name:string` gives the shard index a typed
+column it can prove absence on. Measured on dev: 1.8x to 5x fewer chunks fetched.
+
+`isnotnull(body)` is also incomplete — a log record carrying only attributes and no
+body is dropped by it but returned by the `observed_time` selector. Where an example
+templatizes or parses `body`, it keeps `isnotnull(body)`, because there a body is
+genuinely required rather than merely a way to spot a log.
 
 Common fields across all signals:
 

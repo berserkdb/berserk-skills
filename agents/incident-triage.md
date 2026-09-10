@@ -22,10 +22,10 @@ Establish what's affected and when it started.
 
 ```bash
 # Error rate by service over time — find which services are affected and when errors started
-bzrk -P <profile> search "default | where isnotnull(body) | where severity_text == 'ERROR' or severity_text == 'error' | summarize errors=count() by bin(timestamp, 5m), tostring(resource['service.name']) | order by timestamp asc" --since "1h ago" --desc "error rate by service over time"
+bzrk -P <profile> search "default | where observed_time >= datetime(1970-01-01) | where severity_text == 'ERROR' or severity_text == 'error' | summarize errors=count() by bin(timestamp, 5m), tostring(resource['service.name']) | order by timestamp asc" --since "1h ago" --desc "error rate by service over time"
 
 # Compare error vs total volume — is this a spike or normal?
-bzrk -P <profile> search "default | where isnotnull(body) | summarize total=count(), errors=countif(severity_text == 'ERROR' or severity_text == 'error') by tostring(resource['service.name']) | extend error_pct=round(100.0 * errors / total, 2) | order by error_pct desc" --since "1h ago" --desc "error percentage by service"
+bzrk -P <profile> search "default | where observed_time >= datetime(1970-01-01) | summarize total=count(), errors=countif(severity_text == 'ERROR' or severity_text == 'error') by tostring(resource['service.name']) | extend error_pct=round(100.0 * errors / total, 2) | order by error_pct desc" --since "1h ago" --desc "error percentage by service"
 ```
 
 ### Phase 1b: Diagnose telemetry gaps (MANDATORY before proceeding)
@@ -69,7 +69,7 @@ Find what's actually failing — group by log template, not raw messages.
 bzrk -P <profile> search "default | where isnotnull(body) | where severity_text == 'ERROR' or severity_text == 'error' | summarize sample=take_any(tostring(body)), count=count() by hash=log_template_hash(tostring(body)), tostring(resource['service.name']) | extend pattern=extract_log_template(sample) | project resource_service.name, pattern, count | order by count desc | take 20" --since "1h ago" --desc "error patterns by service"
 
 # Check if errors correlate with a specific trace pattern
-bzrk -P <profile> search "default | where isnotnull(body) | where severity_text == 'ERROR' | where isnotnull(trace_id) | summarize error_count=count(), traces=dcount(trace_id) by tostring(resource['service.name']) | order by error_count desc" --since "1h ago" --desc "error-to-trace correlation"
+bzrk -P <profile> search "default | where observed_time >= datetime(1970-01-01) | where severity_text == 'ERROR' | where isnotnull(trace_id) | summarize error_count=count(), traces=dcount(trace_id) by tostring(resource['service.name']) | order by error_count desc" --since "1h ago" --desc "error-to-trace correlation"
 ```
 
 ### Phase 2b: Check inter-service communication
@@ -78,7 +78,7 @@ If errors are isolated to specific services, check whether the failure cascades 
 
 ```bash
 # Inter-service call errors — CLIENT spans with errors show which outbound calls are failing
-bzrk -P <profile> search "default | where isnotnull(end_time) | where span_kind == 'CLIENT' or span_kind == 'SERVER' | where attributes['error'] == true or severity_text == 'ERROR' | summarize errors=count() by span_name, tostring(resource['service.name']), span_kind | order by errors desc | take 20" --since "1h ago" --desc "failing inter-service calls"
+bzrk -P <profile> search "default | where end_time >= datetime(1970-01-01) | where span_kind == 'CLIENT' or span_kind == 'SERVER' | where attributes['error'] == true or severity_text == 'ERROR' | summarize errors=count() by span_name, tostring(resource['service.name']), span_kind | order by errors desc | take 20" --since "1h ago" --desc "failing inter-service calls"
 ```
 
 ### Phase 3: Check latency impact
@@ -87,10 +87,10 @@ Determine if the incident affects request latency.
 
 ```bash
 # Latency percentiles by service — compare against normal
-bzrk -P <profile> search "default | where isnotnull(end_time) | where span_name == 'incoming_request' or span_name has 'HTTP' | extend dur_ms = totimespan(duration) / 1ms | summarize p50=percentile(dur_ms, 50), p95=percentile(dur_ms, 95), p99=percentile(dur_ms, 99), cnt=count() by tostring(resource['service.name']) | order by p99 desc" --since "1h ago" --desc "latency percentiles during incident"
+bzrk -P <profile> search "default | where end_time >= datetime(1970-01-01) | where span_name == 'incoming_request' or span_name has 'HTTP' | extend dur_ms = totimespan(duration) / 1ms | summarize p50=percentile(dur_ms, 50), p95=percentile(dur_ms, 95), p99=percentile(dur_ms, 99), cnt=count() by tostring(resource['service.name']) | order by p99 desc" --since "1h ago" --desc "latency percentiles during incident"
 
 # Latency over time — find when degradation started
-bzrk -P <profile> search "default | where isnotnull(end_time) | where resource['service.name'] == '<affected_svc>' | extend dur_ms = totimespan(duration) / 1ms | summarize p95=percentile(dur_ms, 95), cnt=count() by bin(timestamp, 5m) | order by timestamp asc" --since "1h ago" --desc "latency timeline for <affected_svc>"
+bzrk -P <profile> search "default | where end_time >= datetime(1970-01-01) | where resource['service.name'] == '<affected_svc>' | extend dur_ms = totimespan(duration) / 1ms | summarize p95=percentile(dur_ms, 95), cnt=count() by bin(timestamp, 5m) | order by timestamp asc" --since "1h ago" --desc "latency timeline for <affected_svc>"
 ```
 
 ### Phase 3b: Anomaly detection with time series
@@ -99,13 +99,13 @@ Use `make-series` + series functions to detect anomalous patterns automatically.
 
 ```bash
 # Detect error rate anomalies per service (series_decompose_anomalies flags spikes/dips)
-bzrk -P <profile> search "default | where isnotnull(body) | extend svc = tostring(resource['service.name']) | where severity_text == 'ERROR' or severity_text == 'error' | summarize errors=count() by bin(timestamp, 5m), svc | make-series err=sum(errors) on timestamp step 5m by svc | extend anomalies=series_decompose_anomalies(err)" --since "6h ago" --desc "error rate anomaly detection"
+bzrk -P <profile> search "default | where observed_time >= datetime(1970-01-01) | extend svc = tostring(resource['service.name']) | where severity_text == 'ERROR' or severity_text == 'error' | summarize errors=count() by bin(timestamp, 5m), svc | make-series err=sum(errors) on timestamp step 5m by svc | extend anomalies=series_decompose_anomalies(err)" --since "6h ago" --desc "error rate anomaly detection"
 
 # Detect latency outliers per span (series_outliers uses Tukey fences)
-bzrk -P <profile> search "default | where isnotnull(end_time) | where span_name == '<span>' | extend svc = tostring(resource['service.name']), dur_ms = totimespan(duration) / 1ms | summarize p95=percentile(dur_ms, 95) by bin(timestamp, 5m), svc | make-series latency=max(p95) on timestamp step 5m by svc | extend outliers=series_outliers(latency)" --since "6h ago" --desc "latency outlier detection"
+bzrk -P <profile> search "default | where end_time >= datetime(1970-01-01) | where span_name == '<span>' | extend svc = tostring(resource['service.name']), dur_ms = totimespan(duration) / 1ms | summarize p95=percentile(dur_ms, 95) by bin(timestamp, 5m), svc | make-series latency=max(p95) on timestamp step 5m by svc | extend outliers=series_outliers(latency)" --since "6h ago" --desc "latency outlier detection"
 
 # Get stats on a series (mean, stdev, min, max, variance)
-bzrk -P <profile> search "default | where isnotnull(body) | where severity_text == 'ERROR' | summarize errors=count() by bin(timestamp, 5m) | make-series err=sum(errors) on timestamp step 5m | extend stats=series_stats_dynamic(err)" --since "6h ago" --desc "error rate statistics"
+bzrk -P <profile> search "default | where observed_time >= datetime(1970-01-01) | where severity_text == 'ERROR' | summarize errors=count() by bin(timestamp, 5m) | make-series err=sum(errors) on timestamp step 5m | extend stats=series_stats_dynamic(err)" --since "6h ago" --desc "error rate statistics"
 ```
 
 Anomaly values: `1` = positive anomaly (spike), `-1` = negative anomaly (dip), `0` = normal. Outlier scores: values far from 0 are outliers (>1.5 = mild, >3.0 = extreme).
@@ -116,7 +116,7 @@ Correlate the error patterns with specific traces and services.
 
 ```bash
 # Get a sample error trace to drill into
-bzrk -P <profile> search "default | where isnotnull(body) | where severity_text == 'ERROR' | where isnotnull(trace_id) | where resource['service.name'] == '<affected_svc>' | project trace_id, timestamp, body | take 5" --since "30m ago" --desc "sample error traces"
+bzrk -P <profile> search "default | where observed_time >= datetime(1970-01-01) | where severity_text == 'ERROR' | where isnotnull(trace_id) | where resource['service.name'] == '<affected_svc>' | project trace_id, timestamp, body | take 5" --since "30m ago" --desc "sample error traces"
 
 # Full trace reconstruction — find which downstream service caused the error
 bzrk -P <profile> search "default | where trace_id == '<trace_id>' | project span_name, timestamp, end_time, duration, span_id, parent_span_id, resource['service.name'], span_kind, body, severity_text | order by timestamp asc" --desc "full trace for root cause"

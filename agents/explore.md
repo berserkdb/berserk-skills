@@ -29,11 +29,11 @@ Signal detection: `body` → logs, `end_time` → traces, `metric_name` → metr
 
 ```bash
 # Logs — schema + top values in one query
-bzrk -P <profile> search "<table> | where isnotnull(body) | otel-log-stats attributes, resource severity=severity_number" --since "1h ago"
+bzrk -P <profile> search "<table> | where observed_time >= datetime(1970-01-01) | otel-log-stats attributes, resource severity=severity_number" --since "1h ago"
 # Traces
-bzrk -P <profile> search "<table> | where isnotnull(end_time) | summarize count() by span_name, tostring(resource.service.name) | order by count_ desc | take 30" --since "1h ago"
+bzrk -P <profile> search "<table> | where end_time >= datetime(1970-01-01) | summarize count() by span_name, tostring(resource.service.name) | order by count_ desc | take 30" --since "1h ago"
 # Metrics
-bzrk -P <profile> search "<table> | where isnotnull(metric_name) | summarize count() by metric_name, metric_type | order by count_ desc | take 30" --since "1h ago"
+bzrk -P <profile> search "<table> | annotate metric_name:string | where isnotnull(metric_name) | summarize count() by metric_name, metric_type | order by count_ desc | take 30" --since "1h ago"
 ```
 
 ### Step 3: Targeted Query
@@ -77,7 +77,7 @@ Write your investigation query based on what Steps 1-2 revealed.
 | `coalesce(a, b)`                                | Null fallback                 | `extend sev = coalesce(severity_text, "UNKNOWN")`                             |
 | `extract('regex', N, col)`                      | Regex capture                 | `extract('error: (.+)', 1, tostring(body))`                                   |
 | `case(pred, val, ...)`                          | Multi-condition labels        | `case(severity_number >= 17, "FATAL", severity_number >= 13, "WARN", "INFO")` |
-| `iff(pred, then, else)`                         | Binary conditional            | `iff(isnotnull(end_time), "trace", "log")`                                    |
+| `iff(pred, then, else)`                         | Binary conditional            | `iff(end_time >= datetime(1970-01-01), "trace", "log")`                                    |
 | `strcat(a, b)`                                  | String concatenation          | `strcat(resource.service.name, "/", span_name)`                               |
 | `substring(s, start, len)`                      | Substring extraction          | `substring(tostring(body), 0, 200)` — truncate long logs                      |
 | `parse_json(s)`                                 | Parse JSON string             | `extend parsed = parse_json(tostring(body))` then access `parsed.field`       |
