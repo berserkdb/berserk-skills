@@ -50,7 +50,7 @@ bzrk -P <profile> search "default | where trace_id == '<id>' | where parent_span
 bzrk -P <profile> search "default | where trace_id == '<id>' | where severity_text == 'ERROR' or attributes['error'] == true | project span_name, timestamp, body, resource['service.name'], severity_text | order by timestamp asc" --desc "errors in trace"
 
 # Check logs associated with this trace
-bzrk -P <profile> search "default | where trace_id == '<id>' | where isnotnull(body) | project timestamp, body, severity_text, resource['service.name'] | order by timestamp asc" --desc "logs for trace"
+bzrk -P <profile> search "default | where trace_id == '<id>' | where observed_time >= datetime(1970-01-01) | project timestamp, body, severity_text, resource['service.name'] | order by timestamp asc" --desc "logs for trace"
 ```
 
 ### Phase 4: Compare against baseline
@@ -59,10 +59,10 @@ Determine if this trace is anomalous or typical.
 
 ```bash
 # Is this span typically slow? Compare against recent p50/p95
-bzrk -P <profile> search "default | where isnotnull(end_time) | where span_name == '<bottleneck_name>' | where resource['service.name'] == '<svc>' | extend dur_ms = totimespan(duration) / 1ms | summarize p50=percentile(dur_ms, 50), p95=percentile(dur_ms, 95), p99=percentile(dur_ms, 99), cnt=count()" --since "1h ago" --desc "baseline latency for <bottleneck_name>"
+bzrk -P <profile> search "default | where end_time >= datetime(1970-01-01) | where span_name == '<bottleneck_name>' | where resource['service.name'] == '<svc>' | extend dur_ms = totimespan(duration) / 1ms | summarize p50=percentile(dur_ms, 50), p95=percentile(dur_ms, 95), p99=percentile(dur_ms, 99), cnt=count()" --since "1h ago" --desc "baseline latency for <bottleneck_name>"
 
 # Same span over time — is latency degrading?
-bzrk -P <profile> search "default | where isnotnull(end_time) | where span_name == '<bottleneck_name>' | where resource['service.name'] == '<svc>' | extend dur_ms = totimespan(duration) / 1ms | summarize p95=percentile(dur_ms, 95) by bin(timestamp, 5m) | order by timestamp asc" --since "1h ago" --desc "latency trend for <bottleneck_name>"
+bzrk -P <profile> search "default | where end_time >= datetime(1970-01-01) | where span_name == '<bottleneck_name>' | where resource['service.name'] == '<svc>' | extend dur_ms = totimespan(duration) / 1ms | summarize p95=percentile(dur_ms, 95) by bin(timestamp, 5m) | order by timestamp asc" --since "1h ago" --desc "latency trend for <bottleneck_name>"
 ```
 
 ### Phase 4b: Cross-reference with source code
@@ -88,13 +88,13 @@ When you don't have a trace_id yet:
 
 ```bash
 # Slowest traces in the last hour
-bzrk -P <profile> search "default | where isnotnull(end_time) | where parent_span_id == '' or isempty(parent_span_id) | extend dur_ms = totimespan(duration) / 1ms | project trace_id, span_name, dur_ms, timestamp, resource['service.name'] | top 10 by dur_ms desc" --since "1h ago" --desc "slowest root spans"
+bzrk -P <profile> search "default | where end_time >= datetime(1970-01-01) | where parent_span_id == '' or isempty(parent_span_id) | extend dur_ms = totimespan(duration) / 1ms | project trace_id, span_name, dur_ms, timestamp, resource['service.name'] | top 10 by dur_ms desc" --since "1h ago" --desc "slowest root spans"
 
 # Error traces
-bzrk -P <profile> search "default | where isnotnull(end_time) | where attributes['error'] == true | project trace_id, span_name, timestamp, duration, resource['service.name'] | take 10" --since "1h ago" --desc "traces with errors"
+bzrk -P <profile> search "default | where end_time >= datetime(1970-01-01) | where attributes['error'] == true | project trace_id, span_name, timestamp, duration, resource['service.name'] | take 10" --since "1h ago" --desc "traces with errors"
 
 # Traces for a specific operation
-bzrk -P <profile> search "default | where isnotnull(end_time) | where span_name == '<operation>' | extend dur_ms = totimespan(duration) / 1ms | summarize p50=percentile(dur_ms, 50), p99=percentile(dur_ms, 99), cnt=count(), slow_trace=arg_max(dur_ms, trace_id) by tostring(resource['service.name'])" --since "1h ago" --desc "latency stats for <operation>"
+bzrk -P <profile> search "default | where end_time >= datetime(1970-01-01) | where span_name == '<operation>' | extend dur_ms = totimespan(duration) / 1ms | summarize p50=percentile(dur_ms, 50), p99=percentile(dur_ms, 99), cnt=count(), slow_trace=arg_max(dur_ms, trace_id) by tostring(resource['service.name'])" --since "1h ago" --desc "latency stats for <operation>"
 ```
 
 ## Key Functions
