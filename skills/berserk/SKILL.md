@@ -299,9 +299,14 @@ the min/max index, and `annotate metric_name:string` gives the shard index a typ
 column it can prove absence on. Measured on dev: 1.8x to 5x fewer chunks fetched.
 
 `isnotnull(body)` is also incomplete — a log record carrying only attributes and no
-body is dropped by it but returned by the `observed_time` selector. Where an example
-templatizes or parses `body`, it keeps `isnotnull(body)`, because there a body is
-genuinely required rather than merely a way to spot a log.
+body is dropped by it but returned by the `observed_time` selector.
+
+Where an example templatizes or parses the body, it selects logs *and* requires a
+body: `| where observed_time >= datetime(1970-01-01) | annotate body:string | where
+isnotnull(body)`. The comparison picks the signal and prunes; `isnotnull(body)` states
+the real requirement, since an attribute-only record has nothing to templatize. The
+`annotate` types the column so the rest of the query can use `body` directly instead
+of wrapping every use in `tostring()`.
 
 Common fields across all signals:
 

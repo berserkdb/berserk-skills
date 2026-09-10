@@ -66,7 +66,7 @@ Find what's actually failing — group by log template, not raw messages.
 
 ```bash
 # Top error patterns across all services
-bzrk -P <profile> search "default | where isnotnull(body) | where severity_text == 'ERROR' or severity_text == 'error' | summarize sample=take_any(tostring(body)), count=count() by hash=log_template_hash(tostring(body)), tostring(resource['service.name']) | extend pattern=extract_log_template(sample) | project resource_service.name, pattern, count | order by count desc | take 20" --since "1h ago" --desc "error patterns by service"
+bzrk -P <profile> search "default | where observed_time >= datetime(1970-01-01) | annotate body:string | where isnotnull(body) | where severity_text == 'ERROR' or severity_text == 'error' | summarize sample=take_any(body), count=count() by hash=log_template_hash(body), tostring(resource['service.name']) | extend pattern=extract_log_template(sample) | project resource_service.name, pattern, count | order by count desc | take 20" --since "1h ago" --desc "error patterns by service"
 
 # Check if errors correlate with a specific trace pattern
 bzrk -P <profile> search "default | where observed_time >= datetime(1970-01-01) | where severity_text == 'ERROR' | where isnotnull(trace_id) | summarize error_count=count(), traces=dcount(trace_id) by tostring(resource['service.name']) | order by error_count desc" --since "1h ago" --desc "error-to-trace correlation"
@@ -138,7 +138,7 @@ bzrk -P <profile> search "default | summarize versions=make_set(tostring(resourc
 bzrk -P <profile> search "default | summarize count() by tostring(resource['service.name']), tostring(resource['service.version']), bin(timestamp, 1m) | order by timestamp asc" --since "<gap_end>" --until "<15m_after_gap>" --desc "rolling update — old and new pods coexisting"
 
 # Check for cold-start / transient errors right after restart — these are normal during warm-up
-bzrk -P <profile> search "default | where isnotnull(body) | where severity_text == 'ERROR' or severity_text == 'FATAL' | where timestamp >= todatetime('<gap_end>') | summarize count=count(), sample=take_any(tostring(body)) by tostring(resource['service.name']) | order by count desc" --since "<gap_end>" --until "<15m_after_gap>" --desc "cold-start or transient errors after restart"
+bzrk -P <profile> search "default | where observed_time >= datetime(1970-01-01) | annotate body:string | where isnotnull(body) | where severity_text == 'ERROR' or severity_text == 'FATAL' | where timestamp >= todatetime('<gap_end>') | summarize count=count(), sample=take_any(body) by tostring(resource['service.name']) | order by count desc" --since "<gap_end>" --until "<15m_after_gap>" --desc "cold-start or transient errors after restart"
 ```
 
 **Assess gap duration:** A Kubernetes rolling update typically completes in minutes. If the gap is much longer (hours), it's likely a maintenance window, a stuck deployment, or an infrastructure issue — not a normal rolling restart. Note the expected vs actual duration in your findings.

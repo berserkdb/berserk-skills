@@ -14,15 +14,15 @@ OTEL log specialist. Query: `bzrk -P <profile> search "<KQL>" --since "<TIME>" -
 # Error logs for a service
 bzrk -P <profile> search "<table> | where observed_time >= datetime(1970-01-01) | where severity_text == 'ERROR' | where resource['service.name'] == '<svc>' | project body, severity_text, timestamp, resource['service.name'], trace_id | take 20" --since "1h ago" --desc "errors for <svc>"
 # Top error patterns (log templates)
-bzrk -P <profile> search "<table> | where isnotnull(body) | where severity_text == 'ERROR' | summarize sample=take_any(tostring(body)), count=count() by hash=log_template_hash(tostring(body)) | extend pattern=extract_log_template(sample) | project pattern, count | top 20 by count desc" --since "1h ago" --desc "error patterns"
+bzrk -P <profile> search "<table> | where observed_time >= datetime(1970-01-01) | annotate body:string | where isnotnull(body) | where severity_text == 'ERROR' | summarize sample=take_any(body), count=count() by hash=log_template_hash(body) | extend pattern=extract_log_template(sample) | project pattern, count | top 20 by count desc" --since "1h ago" --desc "error patterns"
 # Service log volume by severity
 bzrk -P <profile> search "<table> | where observed_time >= datetime(1970-01-01) | summarize count() by tostring(resource['service.name']), severity_text | order by count_ desc" --since "1h ago" --desc "log volume by service and severity"
 # Search logs for a keyword
 bzrk -P <profile> search "<table> | where observed_time >= datetime(1970-01-01) | search \"connection refused\" | take 10" --since "15m ago" --desc "search for connection refused"
 # Parse structured JSON log bodies
-bzrk -P <profile> search "<table> | where isnotnull(body) | extend parsed = parse_json(tostring(body)) | where isnotnull(parsed.error) | project timestamp, parsed.error, parsed.message, resource['service.name'] | take 20" --since "1h ago" --desc "structured error logs"
+bzrk -P <profile> search "<table> | where observed_time >= datetime(1970-01-01) | annotate body:string | where isnotnull(body) | extend parsed = parse_json(body) | where isnotnull(parsed.error) | project timestamp, parsed.error, parsed.message, resource['service.name'] | take 20" --since "1h ago" --desc "structured error logs"
 # Truncate long log messages for readability
-bzrk -P <profile> search "<table> | where isnotnull(body) | where severity_text == 'ERROR' | project timestamp, msg=substring(tostring(body), 0, 200), resource['service.name'] | take 20" --since "1h ago" --desc "truncated error logs"
+bzrk -P <profile> search "<table> | where observed_time >= datetime(1970-01-01) | annotate body:string | where isnotnull(body) | where severity_text == 'ERROR' | project timestamp, msg=substring(body, 0, 200), resource['service.name'] | take 20" --since "1h ago" --desc "truncated error logs"
 # Errors per service with composite key
 bzrk -P <profile> search "<table> | where observed_time >= datetime(1970-01-01) | where severity_text == 'ERROR' | extend svc_span = strcat(tostring(resource['service.name']), '/', span_name) | summarize count() by svc_span | order by count_ desc | take 20" --since "1h ago" --desc "errors by service/span"
 ```
