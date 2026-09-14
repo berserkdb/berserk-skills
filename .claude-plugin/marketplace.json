@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Berserk skills and agents for AI coding agents",
-    "version": "1.3.0"
+    "version": "1.4.0"
   },
   "plugins": [
     {
@@ -25,7 +25,8 @@
         "./agents/otel-metric.md",
         "./agents/incident-triage.md",
         "./agents/trace-analysis.md"
-      ]
+      ],
+      "version": "1.4.0"
     }
   ]
 }
