@@ -1,42 +1,57 @@
 ---
 name: berserk
 description: |
-  Run KQL queries against Berserk using the bzrk CLI. Use this skill whenever:
-  (1) Executing KQL queries to search logs, traces, or metrics
-  (2) Investigating issues by querying data around specific timestamps
-  (3) Debugging problems by examining trace data
-  (4) Exploring schema, field distributions, or service topology
-  (5) Correlating logs and traces via traceId/spanId
-
-  Make sure to use this skill whenever the user mentions querying observability data, searching logs, investigating traces, looking at metrics, debugging production issues, or exploring telemetry data — even if they don't explicitly mention "Berserk" or "bzrk".
-
-  Triggers: "run bzrk", "query traces", "search logs", "investigate", "look at traces around", "what errors", "check metrics"
+  Query Berserk logs, traces and metrics with the bzrk CLI. Use for schema
+  discovery, KQL construction, trace/log correlation, metric analysis and
+  interpreting streamed results. Includes Berserk KQL extensions and guidance
+  for using an available Berserk MCP server alongside the CLI.
 ---
 
 # Berserk
 
-**Route investigation tasks to the right specialist agent:**
+This skill focuses on how to formulate, run and refine queries with `bzrk`.
+The same KQL runs through Berserk MCP's `query` tool. When MCP is connected,
+use `list_databases`, `list_tables`, `discover_fields` and `get_docs` for discovery
+and current operator documentation. MCP also exposes alerts, workflows,
+connections and dashboards; follow its tool contracts for those operations.
+MCP is self-contained and does not require this skill or the CLI.
 
-| Task                  | Agent                     | When to use                                                                 |
-| --------------------- | ------------------------- | --------------------------------------------------------------------------- |
-| Incident triage       | `berserk:incident-triage` | Something is broken — find root cause across logs, traces, and metrics      |
-| Trace analysis        | `berserk:trace-analysis`  | Explain why a request was slow or failed — build cause-and-effect narrative |
-| Log investigation     | `berserk:otel-log`        | Searching errors, log patterns, severity analysis, service log volume       |
-| Trace investigation   | `berserk:otel-trace`      | Span queries, latency percentiles, trace correlation, service dependencies  |
-| Metrics investigation | `berserk:otel-metric`     | Metric discovery, time-series queries, histogram analysis, spike detection  |
-| General exploration   | `berserk:explore`         | Schema discovery, unfamiliar instances, mixed-signal queries, fieldstats    |
+Choose the interface the user requested. CLI profiles and MCP database arguments
+are different routing mechanisms: verify that both target the intended data
+before comparing results. CLI `--since` has no default; MCP `query.since` defaults
+to one hour. MCP timeouts are in milliseconds; CLI `--timeout` is in seconds.
 
-Use `berserk:incident-triage` when the user reports a problem ("errors are up", "service is slow", "something broke"). Use `berserk:trace-analysis` when they have a specific trace or slow request to investigate. Use the signal-specific agents for targeted queries. Use `berserk:explore` when the signal type is unknown or the task spans multiple signal types.
+The Claude plugin additionally supplies specialist agents (`berserk:otel-log`,
+`berserk:otel-trace`, `berserk:otel-metric`, `berserk:explore`,
+`berserk:incident-triage`, `berserk:trace-analysis`). Use them when available and
+appropriate; a standalone skill installation does not include these agents.
 
-**For inline help** (KQL syntax questions, bzrk flag reference), use the quick reference below.
+## How to query
+
+1. Identify the question: existence, a threshold, exact totals, newest events,
+   or a relationship across spans. This determines the query and when it can stop.
+2. Select the profile and time window. Honor a specified historical interval;
+   for an unspecified recent issue start around 30 minutes and widen as needed.
+3. Discover tables and fields. Start with leading `search "term"` for an unknown
+   error source, or `fieldstats` for unfamiliar structured data. Empty results
+   can mean wrong routing, wrong window, a field-type mismatch, or term mismatch.
+4. Filter stored fields early, then project, convert or aggregate. Check the
+   input signal, stored types, units and metric temporality before interpreting it.
+5. Inspect coverage and warnings. Refine the query based on evidence; distinguish
+   a sampled listing or threshold witness from a complete answer.
+
+Examples use `T` as a placeholder for a discovered table and `<profile>` for a
+configured profile. Replace them before running. Quote KQL as shell data: prefer
+single quotes around queries with double-quoted literals; escape literal `$table`
+if using shell double quotes. Never let the shell expand KQL expressions.
 
 ## Quick Reference
 
-### Installation
+### CLI availability
 
-```bash
-curl -fsSL https://go.bzrk.dev | bash
-```
+Check `bzrk --help` and `bzrk search --help` for the installed build's flags.
+If the CLI is missing, use an available MCP or report the missing prerequisite.
+CLI documentation is available at https://docs.bzrk.dev/.
 
 ### Profiles and tables
 
@@ -102,7 +117,7 @@ with the exact term or a `*` wildcard before suspecting the emitter or the pipel
 | ------------- | ----------------------------------------- |
 | `--json`      | Output as JSON                            |
 | `--csv`       | Output as CSV                             |
-| `--since`     | Start time (default: "1h ago")            |
+| `--since`     | Start time (no default; pass explicitly)   |
 | `--until`     | End time (default: "now")                 |
 | `--stats`     | Show execution statistics                 |
 | `--timeout`   | Query timeout in seconds (default: 300)   |
@@ -110,83 +125,234 @@ with the exact term or a `*` wildcard before suspecting the emitter or the pipel
 | `--no-stream` | Print only the completed result           |
 | `--desc`      | Short description of WHY the query is run |
 
-### Streaming results (stop predicates)
+### Time bounds and field discovery
 
-`bzrk search` streams **replacement snapshots over the same `--since`/`--until` window**. Each increment is whatever has been scanned so far — more coverage of that window, not a different range. Slice scheduling often starts at the right edge of the grid, but that is not a guarantee (concurrent workers, cache reuse, joins). Never infer "this is the newest data" or "this `min(timestamp)` is global" from an early increment. An increment looks like a finished table; it is only a lower bound (or a partial listing) you can test.
-
-**Do not wait for `# Query Complete` by default.** Write a **decidable predicate** _before_ starting the query, and stop the moment a completed snapshot decides it. Completeness is only required when a partial cannot decide the question.
-
-Predicate examples:
-
-- existence: any matching row (`rows >= 1`)
-- threshold: `n >= 1000`, ingested bytes `>= 10000000`
-- newest-N: `take 50` already full (`rows >= 50`)
-
-A running `count()` / `sum(bytes)` **can** stop early when the question is a threshold (partial is a lower bound). Exact `min`/`max`/`avg`/`count` over the whole requested window, or absence ("none at all"), cannot — those need `# Query Complete`.
-
-The predicate is the contract; *how* it is watched is an implementation detail. `--stop-when` is the built-in monitor — prefer it whenever the predicate fits its grammar. Claude Code's Monitor tool is the fallback mechanism, not the definition of "monitoring".
-
-**Preferred: let the CLI stop itself with `--stop-when`.** One foreground command, no background job, no kill:
+A table scan needs a bound on `timestamp` or `ingest_time`; otherwise it fails
+with `MissingTimeFilter`. CLI `--since`/`--until`, `--ingest-since`/`--ingest-until`
+and in-query bounds intersect. A wider KQL bound cannot widen a narrower CLI
+window. Prefer explicit CLI bounds so the requested interval is visible.
 
 ```bash
-bzrk -P <profile> search "<KQL> | summarize n=count()" --since "7d ago" \
-  --stop-when "n >= 50" --desc "<why>"
+bzrk -P <profile> search 'T | fieldstats with limit=1000 depth=2' --since "30m ago" --desc "discover stored field types"
+bzrk -P <profile> search 'T | fieldstats with field="*status*"' --since "30m ago" --desc "find status fields"
+bzrk -P <profile> search 'T | sort by timestamp desc | take 50' --since "30m ago" --desc "newest 50 events"
 ```
 
-The predicate is `<ident> <op> <number>`: `<ident>` is `rows` (snapshot row count) or a column name (first row's numeric value); `<op>` is one of `>=`, `<=`, `>`, `<`, `==`, `!=`. A column predicate reads only the FIRST row — for "any row crosses X" over a multi-row `summarize`, sort that column to the top (`| summarize n=count() by service | sort by n desc` with `--stop-when "n > 1000"`). When it holds on a completed snapshot the CLI cancels the scan and prints a `# Stopped Early` header naming the predicate, the increment, and (in agent mode) the absolute path of the deciding TSV:
+`fieldstats` reports paths, types, cardinality and value hints. A sample can miss
+rare fields; a field/value glob scans for matching leaves and may scan the whole
+window if nothing matches. Widen discovery deliberately, not by removing bounds.
 
-```
-# Stopped Early - predicate "n >= 50" held at increment 1 - 1 rows - /home/you/.cache/bzrk/history/<id>/incremental/PrimaryResult/1.tsv
-```
+## Data model and query strategy
 
-Report the value as a **partial lower bound** over the window (say so), never as the full-window total. If the query instead runs to `# Query Complete`, that is the exact final result.
+Logs, traces, and metrics share a table as separate rows. Discover actual table
+and field names; an empty discovery result describes only the selected window.
+Common fields include `timestamp`, `resource['service.name']`,
+`resource['service.version']`, and `trace_id`.
 
-**Predicate not numeric? Use `--stop-cmd`** — a shell command run against each completed snapshot's TSV (absolute path as `$1`; also `BZRK_SNAPSHOT_TSV`, `BZRK_INCREMENT`, `BZRK_ROWS`). Exit codes follow grep: 0 stops, 1 continues, anything else aborts. Still one foreground command. Unix only; mutually exclusive with `--stop-when`.
+For OTel signal selection, prefer predicates that allow chunk pruning:
+
+- Logs: `where observed_time >= datetime(1970-01-01)`. Fields include `body`,
+  `severity_text`, `severity_number`, and `attributes`. `isnotnull(body)` alone
+  misses attribute-only logs; require a body only when the task needs one.
+- Spans: `where end_time >= datetime(1970-01-01)`. Fields include `span_name`,
+  `trace_id`, `span_id`, `parent_span_id`, `duration`, and `span_kind`.
+- Metrics: `annotate metric_name:string | where isnotnull(metric_name)`.
+  Inspect metric type and temporality before choosing an aggregation.
+
+Choose the window to answer the question. For an unspecified recent issue, start
+with `since: "30m ago"`, then widen if needed (3h → 6h → 2d → 7d). For an explicit
+historical incident, query that interval directly. Use `since`/`until` parameters
+for the scan window; additional KQL time predicates intersect that window.
+
+For an unfamiliar error term, leading `search "term"` searches across tables;
+`$table` identifies the source. Search matches whole terms case-insensitively,
+not arbitrary substrings: `"journal"` does not match `"journals"`; `"journal*"`
+matches a prefix and `"*journal*"` a substring. Narrow to a table and selective
+fields once found. `fieldstats` discovers dynamic paths, types and sample values;
+use a bounded sample (`with limit=1000`) and field/depth filters for wide data.
+
+Search synonyms as separate terms: `search "ai" or "llm"`, never one quoted blob like `search "ai OR llm"`.
+
+## Berserk KQL essentials
+
+- Bare fields resolve permissively; no `$raw.` prefix is needed. Bracket-quote
+  literal OTel keys containing dots: `resource['service.name']`.
+- Keep filters on stored fields where possible: `where severity_text == "ERROR"`
+  or `where severity_text =~ "error"`. Wrapping fields in `tostring`/`tolower`
+  can prevent index pruning. Use `=~` for case-insensitive equality.
+- Dynamic comparisons use stored values: numeric `500` differs from string
+  `"500"`. Typed function arguments can automatically extract compatible dynamic
+  values using the `as*` family; extraction is not string parsing. Inspect
+  `gettype(field)` on unexpected nulls. Use `to*` in `extend`/`project` when
+  conversion is intended, then filter the converted value if necessary.
+- `annotate` declares dynamic field types for subsequent operations:
+  `T | annotate value:real | summarize avg(value) by bin(timestamp, 5m)`.
+  It also supports nested objects and arrays, e.g.
+  `annotate payload:{count:long, tags:[string]}`. Annotations propagate through
+  projections. Only dynamic columns can be annotated; a known scalar type is
+  rejected. Numeric datetime annotations interpret Unix nanoseconds, while
+  timespan annotations interpret 100 ns ticks; annotation is not `as*` extraction
+  or string parsing.
+- Missing fields are null. `where` keeps only true. Ordering against null and
+  its negation are null: `not(duration > 5s)` drops missing durations. Use
+  `isnull`/`isnotnull` explicitly when missing data should be included.
+- `take N` is an arbitrary subset, not the newest N. For newest results use an
+  explicit timestamp ordering. Exact totals, extrema, averages and absence
+  require complete coverage; partial counts can prove a threshold, not absence.
+  Only `status=complete` means the scan completed without dropped data. Inspect
+  `warnings`, `partial_failures`, and sampling/approximation semantics as well;
+  scan completion does not make an approximate aggregate exact.
+
+### Timestamp and duration units
+
+Berserk stores datetime/timestamp values as **nanoseconds since the Unix epoch**.
+A `timespan` uses **100 ns ticks**: 10,000 ticks = 1 ms; 10,000,000 ticks = 1 s.
+Do not apply a nanosecond divisor to a timespan. Prefer typed arithmetic:
+`(end_time - timestamp) / 1ms` or `duration / 1ms` for milliseconds, when the
+fields have the corresponding datetime/timespan types.
+
+Numeric KQL conversions have a different contract from timestamp storage:
+`tolong(datetime)` returns .NET ticks since 0001-01-01, and `todatetime(number)`
+expects those ticks. To convert Unix nanoseconds use
+`unixtime_nanoseconds_todatetime(value)`, not `todatetime(value)`.
+`tolong(timespan)` returns duration ticks; `tolong(duration) / 10000.0` yields ms.
+A raw numeric OTel attribute or metric is not necessarily a timespan: discover
+its type and unit rather than inferring them from its name.
+
+## Extensions worth using
+
+- **`trace-find`** finds traces through span relationships and correlated logs.
+  Example: `T | trace-find { resource['service.name'] == "api" } >> { status_code == "ERROR" }`.
+  `>` means child, `>>` descendant, `~` sibling, and `::` correlated log.
+  Predicates within one block apply to the same span; separate blocks joined by
+  `and` are existence checks anywhere in the trace. A chained relationship is
+  evaluated as independent checks, not necessarily one continuous path.
+  Default output is one row per matching trace, not raw spans. Its attached
+  `summarize` aggregates collected rows of each matching trace, not just the
+  predicate matches. `within` (default 5m) controls collection windows, not a
+  strict trace-duration filter; long traces need an appropriate window. Keep
+  logs in the input when correlating them. Read the trace-find reference for
+  structural syntax, collection/early-stop limits, and output clauses.
+- **`otel-log-stats`** explores log attributes and patterns in one pass.
+- **`otel_rate` / `otel_increase`** handle OTel counters; **`otel_delta`** measures
+  signed change. **`otel_histogram_percentile`** merges histogram observations;
+  a percentile of histogram sums or averages is not a request percentile.
+  Fetch their docs for input columns, temporality, grouping and sample needs.
+- **`events[*].name`** can filter array elements without `mv-expand`; consult
+  the relevant docs before assuming multiple predicates match the same element.
+- **`fork`** shares a source scan across branches; **`bin_auto(timestamp)`**
+  adapts chart bins to the requested window. Metric rate/percentile bins must
+  still accommodate the emission interval.
+
+## Keep queries fast
+
+Berserk prunes chunks via bloom / range indexes and only reads what a query needs — write queries that let it prune, and never pull down more than you must:
+
+- Choose a window matching the question; start narrow for an unspecified recent issue.
+
+- **Filter on a selective, reasonably long string** (a service name, an error   signature, an id) so the bloom index skips chunks. An unfiltered aggregate like   `<table> | count` is a full-table scan — it must read every chunk. Put a pruning   `where` before the aggregation.
+- **Answering "how many …?" with no window named:** never run an unfiltered   count over a wide range. Count a narrow window (30m–1h), report it as a windowed   number ("~N rows in the last hour"), and offer to widen if the user wants a   longer horizon. Honor an explicit historical interval directly.
+- **Approximate and limit.** Prefer `dcount()` (approximate) over exact distinct   counts, and cap rows with `take` / `limit`. A "naked" table reference with   nothing after it already resolves to `<table> | tail 2000`, so a bare `<table>`   is a cheap recent-rows peek — not a scan.
+- **Order after aggregating when possible.** Sort the small output of a `summarize` for ranked groups. Use raw timestamp ordering when the question requires newest rows.
+- **Peek before you commit.** When log-pattern / `fieldstats` / OTel-stats helpers   don't fit, `<query> | take 2` is the fastest way to see the shape of the data   before writing the real query.
+
+## Metrics
+
+Each metric row is one OTel data point. `$raw` refers to that whole underlying record — every stored field. The common OTel fields are surfaced as typed columns (`value`, `metric_name`, `aggregation_temporality`, …) and bare names resolve against the record automatically (permissive mode), so you rarely write `$raw` yourself. You pass `$raw` to the OTel counter/histogram aggregates specifically because they operate on the *entire* data point — value, temporality, and timing together — not a single column, which is what lets them handle cumulative-vs-delta correctly. Group by `metric_hash` (one series per label set — required for counter rates, or per-pod values mix and produce wrong rates). Pick the aggregate by metric kind:
+
+- **Counter** — `otel_rate($raw)`: the per-second rate of the monotonic counter   (bytes, requests, drops). This is the OTel equivalent of `rate(value, timestamp)`.
+- **Histogram** — `otel_histogram_merge($raw)` to merge buckets, or   `otel_histogram_percentile($raw, <p>)` for a percentile (e.g. p95 latency). Keep   the bin ≥ 2 scrape intervals — a single-snapshot bin reads NaN.
+- **Gauge** — plain `avg(value)` / `max(value)`; a gauge is   already an instantaneous value, so no OTel function and no `$raw`.
+
+Canonical shape (per-series counter rate, largest series first):
+
+    <table>
+    | where metric_name == '<name>'
+    | make-series value = otel_rate($raw) on timestamp step 1m by metric_hash
+    | top 1000 by series_max(value) desc
+
+`make-series` needs a `step`; add explicit `from <start> to <end>` only when you want a fixed axis rather than the scanned window.
+
+## Log pattern discovery
+
+To find recurring log shapes — templatize each body and count how often each pattern occurs — use:
+
+    <table>
+    | where isnotnull(body)
+    | summarize take_any_body = take_any(tostring(body)), count = count()
+      by hash = log_template_hash(tostring(body))
+    | extend p = extract_log_template(take_any_body), rex = log_template_regex(take_any_body)
+    | project p, count, rex
+    | top 500 by count desc
+
+### Finding traces, not just individual spans
+
+Use `trace-find` when the question relates multiple spans or correlated logs.
+Ordinary `where` filters individual rows and cannot express those relationships.
 
 ```bash
-bzrk -P <profile> search "<KQL>" --since "<TIME>" --stop-cmd 'grep -q OOMKilled "$1"' --desc "<why>"
-bzrk -P <profile> search "<KQL>" --since "<TIME>" --stop-cmd '[ "$(tail -n +2 "$1" | wc -l)" -ge 50 ]' --desc "<why>"
+bzrk -P <profile> search 'T | trace-find { severity_text == "ERROR" } | take 20' --since "30m ago" --desc "sample traces carrying error logs"
+bzrk -P <profile> search 'T | trace-find { status_code == "ERROR" } summarize errors=countif(status_code == "ERROR"), rows=count()' --since "30m ago" --desc "count errors within matching traces"
 ```
 
-**Fallback: Monitor the headers yourself** — only when the stop decision needs judgment (you must read the data, not mechanically test it) or on an older CLI without the stop flags. Background `bzrk search` (no `--no-stream`) and Monitor increment **headers** (`grep --line-buffered`; plain `grep` delays events). Each header line is self-contained and ends with the **absolute path** of its TSV snapshot:
+- One `{ A and B }` block requires the same row to satisfy both. `{ A } and { B }`
+  requires both to exist in the trace, possibly on different spans.
+- `>` is child, `>>` descendant, `<` parent, `<<` ancestor, `~` sibling;
+  `::` links spans to correlated logs. Keep log rows in the input for correlation.
+- Chaining `{ A } >> { B } >> { C }` checks the two relationships independently;
+  do not assume the same B span connects both. A root span has no ancestor.
+- Default output is one row per matching trace. Attached `summarize` aggregates
+  collected trace rows, not only predicate matches; grouping by trace_id is implicit.
+  A subsequent `| summarize` instead aggregates the trace-find output rows.
+- `within` defaults to 5m and is a collection-window hint, not a strict duration
+  predicate. The engine can widen it. Choose a window appropriate for long traces;
+  use an output duration predicate for an actual duration constraint.
+- Unordered `| take N` can stop after collecting N traces, an arbitrary subset.
+  Later matches beyond the collected window may be absent. Do not call it newest-N
+  or a complete trace history. Trace duration is a timespan; `/ 1ms` yields milliseconds.
 
-```
-# Increment 4 - at 2026-08-20T12:01:42Z - 3/158 time slices complete - 1 rows (7b) - /home/you/.cache/bzrk/history/<id>/incremental/PrimaryResult/4.tsv
-# Query Complete - 1 rows (7b) - /home/you/.cache/bzrk/history/<id>/PrimaryResult.tsv
-```
+For full syntax and collection limits consult MCP `get_docs("trace-find")` or the
+Berserk query-language reference. Keep field names based on discovery.
 
-Read that exact path from the event — never construct it yourself (it is under `~/.cache/bzrk/history/`, NOT relative to your cwd).
+### Streaming results and deciding when to stop
 
-Launch with this block **verbatim as separate lines** — the `&` must background only the bzrk
-line. Never fold it into a `&&` chain with a trailing `&` (that backgrounds the whole chain and
-the variables never get set):
+`bzrk search` streams replacement snapshots over the same requested window.
+Each snapshot contains the scan's current coverage, not necessarily the newest
+data. Do not concatenate snapshots or infer a global minimum/maximum from one.
+
+Choose a stopping condition based on the question. Existence and thresholds on
+monotonically increasing counts can be decided early; exact totals, averages,
+newest-N and absence require complete coverage. Sums are lower bounds only if
+contributions are non-negative; partial averages and percentiles are not bounds.
 
 ```bash
-log=$(mktemp)
-bzrk -P <profile> search "<KQL>" --since "<TIME>" --desc "<why>" >"$log" 2>&1 &
-echo $! >"${log}.pid"
+bzrk -P <profile> search 'T | summarize n=count()' --since "30m ago" --stop-when "n >= 50" --allow-partial --desc "are there at least 50 rows"
 ```
 
-**Then check the log once before arming a Monitor** — small windows often finish in seconds:
+`--stop-when` accepts `<ident> <op> <number>`: `rows` or a column, with
+`>= <= > < == !=`. A column predicate reads the FIRST row only. For a threshold
+on any group, sort the aggregate descending to put its maximum first. Only stop
+when the condition cannot be undone by further scanning; equality of a running
+count is not evidence of the final count. MCP's `stop_when` explicitly prevents
+non-absorbing predicates from cancelling; do not assume CLI flags do the same.
 
-- log already shows `# Query Complete` → that line's path is the final result; done, no Monitor.
-- latest `# Increment N` already decides the predicate → decide now, kill, done, no Monitor.
-- otherwise arm the Monitor (persistent watch, `persistent: true`):
+`--stop-cmd` handles a condition over a completed snapshot TSV. It receives the
+absolute file path as `$1` (also `BZRK_SNAPSHOT_TSV`, `BZRK_INCREMENT`, `BZRK_ROWS`).
+Exit 0 stops, 1 continues, any other code aborts. It is Unix-only and mutually
+exclusive with `--stop-when`.
 
-```bash
-# Monitor command (headers only — each event ends with the TSV path you Read):
-tail -F "$log" | grep --line-buffered -E '^# (Increment|Query Complete)'
-```
+Agent output headers include absolute paths to saved TSV files. Read those paths
+to inspect full results instead of rerunning the query or constructing cache
+paths. `# Stopped Early` is a partial answer; report the threshold witness and
+window, not an exact total. `# Query Complete` indicates the scan ended, but
+inspect warnings and dropped-data signals before claiming complete data.
+Approximate aggregates remain approximate even after a complete scan.
 
-On `# Increment N`: Read the TSV at the path the event line ends with → if predicate holds, `kill "$(cat "${log}.pid")"` and treat the result as **partial** (say so). On `# Query Complete` without the predicate firing, that is the final result (its own path, same line).
-
-**Stop the query ONLY with `kill "$(cat "${log}.pid")"`.** Never `pkill -f` on the query text — it matches your own `tail`/`grep`/shell (which carry the same string) and kills them instead of, or along with, the query.
-
-Never treat increment 1 as the answer just because it has a table. `| head` of a streaming run is the same bug.
-
-If neither the stop flags nor Monitor are available, `--no-stream` (final only) — you lose early-stop.
-
-> _Rollout note: CLI builds released before `--stop-when` need the Monitor fallback for every early-stop; builds before the header carried the path also print it on a separate `Saved in:` line instead (home-shortened with `~`) — take it from there and expand `~` yourself._
+Incomplete results normally exit 3. Use `--allow-partial` when an intentional
+partial answer meets the request; the flag changes exit handling, not coverage.
+`--no-stream` requests final-only output and conflicts with the stop flags.
+Use built-in stopping controls rather than a shell pipeline to `head`, which
+can truncate a query without establishing the answer.
 
 ### Time formats
 
@@ -194,127 +360,11 @@ If neither the stop flags nor Monitor are available, `--no-stream` (final only) 
 - Absolute: `"2024-01-01"`, `"2024-01-01T10:30:00"`
 - Special: `"now"`, `"today"`, `"yesterday"`
 
-### Permissive mode
+### Reference and compatibility
 
-Berserk uses permissive field resolution by default — bare field names automatically resolve without needing a `$raw` prefix:
-
-```
-where severity_text == "ERROR"          ✅ works (permissive)
-where $raw.severity_text == "ERROR"     ❌ unnecessary
-```
-
-Every bag field is `dynamic`. How a `dynamic` is handled depends on **where** it appears, and the
-two contexts behave differently on purpose:
-
-**1. Comparisons / scan predicates — compared by native type, never coerced.** A bare
-`where field == "x"` works directly on a dynamic field and keeps the segment indexes engaged
-(bloom / SHAR / range). **Never wrap a scan predicate in `tostring()` / `tolower()` / `tolong()` / any
-function** — it forces per-row evaluation and disables pruning (see _Making queries fast_). A type
-that can't match is simply not equal (e.g. a numeric field `== "5"` is `false`, not coerced).
-
-For a **case-insensitive** match use `=~` (and `!~`), never `tolower(field) == "..."`. `=~` is a real
-operator that prunes: its chunk bloom is case-folded, so it skips chunks just like `==` — on dynamic
-fields too. `==` / `!=` stay case-sensitive.
-
-```
-where resource['service.name'] == "query"     ✅ bare — prunes chunks
-where level =~ "error"                         ✅ case-insensitive AND prunes (case-folded bloom)
-where tolower(level) == "error"                ❌ function in a filter — defeats pruning; use =~
-where tostring(resource['service.name']) == "query"   ❌ defeats the index, same result
-```
-
-**2. Typed function arguments — auto-coerced via the `asXXX` family (extract-or-null).** When a
-dynamic field is passed to a function/operator that expects a concrete type, the binder injects the
-matching extractor (`asstring` / `aslong` / `asdouble` / `asdatetime` / …). `asT` **extracts** the
-value if it is already that type (or a dynamic carrying it), otherwise yields **null** — it never
-converts across types. So bag fields feed typed functions with no explicit cast, _when the stored
-value is that type_:
-
-```
-extend lvl = tolower(level)                    ✅ asstring(level) extracted, lowered (a projection — for a filter use `level =~ "error"`)
-project code = substring(attributes.path, 0, 8) ✅ when path is a string
-extend evt = parse_json(body)                  ✅ string → parse; already-structured → passthrough
-summarize avg(value) by bin(timestamp, 5m)     ✅ value auto-coerces numeric; timestamp is native datetime
-```
-
-**Use an explicit `to*()` only to cross types — and only in `project`/`extend`, never in a filter.**
-`asXXX` won't parse a string into a number/datetime (that would reify a new value); when a field is
-stored as the "wrong" type you must convert deliberately:
-
-```
-extend t = todatetime(attributes.event_time)   // event_time is a STRING → parse it (asdatetime would be null)
-extend n = tolong(attributes.count_str)         // numeric stored as a string → parse it
-```
-
-If a typed function returns unexpected nulls, the field isn't the type you assumed — check
-`gettype(field)`, then add the explicit `to*()` in a projection. Arithmetic on a dynamic numeric
-auto-coerces (`value * 2` works); `annotate <col>:real` is still useful to fix a column's type once
-up front for a whole pipeline.
-
-**3. Nulls in comparisons — uneven on purpose, and Kleene under negation.** Absent fields read as
-null, and null comparisons follow Microsoft Kusto's tiers: against a **concrete value** they are
-two-valued (`null == 4` → `false`, `null != 4` → `true` — so `where i != 5` **keeps** null rows);
-against **another null** or under **ordering** they are null (`null == null` → null, `null < 4` →
-null). A `where` keeps a row only on definitive `true`, and `not`/`and`/`or` are three-valued —
-the practical traps:
-
-```
-where not(duration > 5s)                       ⚠️ DROPS rows where duration is null (not(null) = null)
-where not(duration > 5s) or isnull(duration)   ✅ "not above threshold, or unknown"
-where x == int(null)                           ❌ never true — not a null check; use isnull(x)
-```
-
-**Dynamics compare by the STORED value — never parsed.** `where attrs.status == 500` matches the
-_number_ 500, not the string `"500"`. This is a deliberate divergence from ADX, which parses and
-even truncates (`dynamic(2.5) == long(2)` is true there; false here — `dynamic(2.0) == 2` is true
-in both, free numeric widening). If an ADX-idiomatic comparison comes back empty, the stored type
-isn't what you assumed: check `gettype(field)` and normalize with `to*()` in a projection, never in
-the filter.
-
-> _Rollout note: `=~` pruning is on master (Dev now; Valhalla at the next release after v1.0.118).
-> The null/dynamic comparison semantics above land with rustytrace#3436 (in review) — older engines
-> two-value everything (`null == null` → `false`, `not(x > 5)` keeps null rows) and evaluate
-> `dynamic(4) == 4` as `false`._
-
-Use bracket notation for OTel attribute keys containing dots:
-
-```
-resource['service.name']     ✅ correct
-resource.service.name        ❌ ambiguous
-```
-
-### OTel data structure
-
-Berserk stores logs, traces, and metrics in a **single unified table** as separate rows. Select a signal with a predicate the chunk index can prune on:
-
-| Signal      | Selector                                            | Key fields                                                                    |
-| ----------- | --------------------------------------------------- | ----------------------------------------------------------------------------- |
-| **Logs**    | `where observed_time >= datetime(1970-01-01)`       | `body`, `severity_text`, `severity_number`, `attributes`                      |
-| **Traces**  | `where end_time >= datetime(1970-01-01)`            | `span_name`, `trace_id`, `span_id`, `parent_span_id`, `duration`, `span_kind` |
-| **Metrics** | `annotate metric_name:string \| where isnotnull(metric_name)` | `metric_name`, `metric_type`, `value`, `sum`, `count`             |
-
-**Not a presence test.** `isnotnull(body)` / `isnotnull(end_time)` reach no chunk
-index, so they scan every chunk in the window. A datetime *comparison* prunes via
-the min/max index, and `annotate metric_name:string` gives the shard index a typed
-column it can prove absence on. Measured on dev: 1.8x to 5x fewer chunks fetched.
-
-`isnotnull(body)` is also incomplete — a log record carrying only attributes and no
-body is dropped by it but returned by the `observed_time` selector.
-
-Where an example templatizes or parses the body, it selects logs *and* requires a
-body: `| where observed_time >= datetime(1970-01-01) | annotate body:string | where
-isnotnull(body)`. The comparison picks the signal and prunes; `isnotnull(body)` states
-the real requirement, since an attribute-only record has nothing to templatize. The
-`annotate` types the column so the rest of the query can use `body` directly instead
-of wrapping every use in `tostring()`.
-
-Common fields across all signals:
-
-- `timestamp` — event timestamp
-- `resource['service.name']` — service identifier
-- `resource['service.version']` — deployed version
-- `trace_id` — trace correlation (logs and traces)
-
-### Known limitations
-
-`distinct` and `union` (of non-datatable sources) are not yet supported.
+The current reference includes `distinct` and real-table `union`. Pipeline-subquery
+union arms have restrictions on nested operators and downstream processing;
+consult MCP `get_docs("union")` when available, or https://docs.bzrk.dev/.
+Do not infer full ADX compatibility or deployed capabilities from remembered
+release notes. Report unsupported syntax and use an equivalent query only when
+it preserves the requested answer.

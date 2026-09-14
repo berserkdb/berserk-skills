@@ -136,3 +136,14 @@ cp -r /tmp/berserk-skills/skills/berserk ~/.claude/skills/
 ## Other Agents
 
 Support for Cursor, GitHub Copilot, and other coding agents is planned. Contributions welcome.
+
+## Maintaining the generated skill
+
+`skills/berserk/SKILL.md` is generated from shared Markdown sections in the Berserk
+source repository, alongside the MCP and in-app guidance. Edit those sections and
+export the skill instead of editing the generated file here. Specialist agents
+under `agents/` are maintained in this repository.
+
+See the [generation and publishing guide](https://git.internal.bzrk.dev/berserkdb/rustytrace/src/commit/e04ebe016fa9bc66e90b32aed8c022f5699f5995/docs/dev/agent-guidance.md)
+for regeneration, drift checks, versioning and publication. The generating source
+revision is recorded as `Berserk-source:` in each release commit.
