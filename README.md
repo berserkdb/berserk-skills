@@ -1,149 +1,137 @@
 # Berserk Skills
 
-Agent skills and subagents for querying [Berserk](https://berserk.dev) from AI coding agents.
+Give your coding agent the knowledge to investigate logs, traces, and metrics in
+[Berserk](https://berserk.dev). Explore unfamiliar data, write Berserk KQL, follow
+requests across services, and turn telemetry into answers you can check.
 
-## What's Included
+This repository provides a portable **Berserk skill** for agents such as Codex,
+Cursor, OpenCode, and Claude Code, plus **specialist agents** for the Claude Code
+plugin.
 
-| Component                    | Description                                                                                                             |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| **berserk** skill            | Teaches Claude how to use the `bzrk` CLI — triggered automatically when you mention logs, traces, metrics, or debugging |
-| **explore** agent            | General-purpose data exploration — schema discovery, error investigation, service health checks                         |
-| **cluster-admin** agent      | Manage and troubleshoot a Berserk cluster — service health, datasets, segments, ingest tokens, merge tasks              |
-| **otel-log** agent           | Investigate OpenTelemetry logs — error patterns, log templates, severity analysis, service-level log exploration        |
-| **otel-trace** agent         | Investigate OpenTelemetry traces — span analysis, latency debugging, trace correlation, service dependency mapping      |
-| **otel-metric** agent        | Investigate OpenTelemetry metrics — gauge/sum/histogram analysis, metric discovery, time-series queries                 |
-| **incident-triage** agent    | Investigate production incidents — correlate errors, latency spikes, and log patterns to find root cause                |
-| **trace-analysis** agent     | Analyze distributed traces — build cause-and-effect narratives, identify critical paths and cascading failures          |
+## What you can do
 
-## Any Agent (Codex, Cursor, OpenCode, Gemini CLI, ...)
+- Find errors and recurring log patterns, then connect them to your source code.
+- Follow distributed traces to investigate slow requests and failures.
+- Explore service metrics, latency distributions, and changes over time.
+- Discover fields and stored types before building a query.
+- Use Berserk extensions such as `annotate` and `trace-find`, with guidance on
+  time windows, units, and incomplete results.
 
-The `berserk` skill uses the open [Agent Skills](https://skills.sh) format. Install it into any supported harness with the [`skills` CLI](https://www.npmjs.com/package/skills):
+## Get started
 
-```bash
-npx skills add berserkdb/berserk-skills          # pick agents interactively
-npx skills add berserkdb/berserk-skills -a '*' -y # install to every detected agent
+You need access to a Berserk instance. For CLI-based investigations, install
+[`bzrk`](https://docs.bzrk.dev/) and configure a profile for your instance. Check
+that the CLI is available and your profile appears:
+
+```sh
+bzrk --help
+bzrk profile list
 ```
 
-Skills are symlinked, so `npx skills update` picks up new revisions. The subagents below are Claude Code plugin extras and do not ship through the skills CLI.
+Then choose the installation that fits your agent.
 
-## Claude Code
+### Portable skill
 
-### Install via Plugin Marketplace
+Use the [Agent Skills CLI](https://github.com/vercel-labs/skills) to choose an
+agent and installation scope:
 
+```sh
+npx skills add berserkdb/berserk-skills
 ```
+
+This installs the Berserk skill. The specialist agents listed below are included
+with the Claude Code plugin.
+
+To download the repository for inspection or manual setup:
+
+```sh
+git clone https://github.com/berserkdb/berserk-skills.git
+```
+
+The standalone skill lives in [`skills/berserk/SKILL.md`](skills/berserk/SKILL.md).
+Follow your agent's instructions for loading a local skill.
+
+### Claude Code plugin
+
+Run these commands in Claude Code to install the skill and specialist agents:
+
+```text
 /plugin marketplace add berserkdb/berserk-skills
 /plugin install berserk@berserk-skills
 ```
 
-### Install Manually
+See [Claude Code's plugin guide](https://code.claude.com/docs/en/discover-plugins)
+for installation scopes and plugin management.
 
-```bash
-git clone https://github.com/berserkdb/berserk-skills.git /tmp/berserk-skills
-cp -r /tmp/berserk-skills/skills/berserk .claude/skills/
-cp -r /tmp/berserk-skills/agents .claude/agents/
+## Ask a question
+
+Tell your agent which environment to investigate and the time range you care
+about. For example:
+
+> Use my staging profile to find the most common checkout errors in the last hour.
+
+> Investigate why payment requests became slower after the latest deployment.
+
+> Follow this trace ID and show where the request spent its time.
+
+> Compare API error rates before and after 14:00 UTC today.
+
+The skill guides the agent through discovery, query construction, and result
+interpretation. It explains how to distinguish a complete answer from a sample
+or a partial scan, and how to refine a query when more evidence is needed.
+
+## Using Berserk MCP
+
+The skill focuses on querying with `bzrk`. If your agent is connected to a
+Berserk MCP server, it can also discover databases and fields, run KQL, and fetch
+operator documentation with `get_docs` through MCP tools.
+
+Berserk MCP supplies its own instructions and works independently of this skill
+and the CLI. When both are available, tell your agent which interface to use and
+which environment to target.
+
+## Claude Code specialist agents
+
+The plugin includes agents for focused investigations. You can ask Claude to use
+one by name, such as “Use the incident-triage agent to investigate checkout errors.”
+
+| Agent | Focus |
+| --- | --- |
+| [`explore`](agents/explore.md) | Discover data and investigate service behavior |
+| [`otel-log`](agents/otel-log.md) | Search logs, group errors, and analyze log patterns |
+| [`otel-trace`](agents/otel-trace.md) | Explore spans, latency, and service relationships |
+| [`otel-metric`](agents/otel-metric.md) | Analyze gauges, counters, and histograms |
+| [`incident-triage`](agents/incident-triage.md) | Correlate logs, traces, and metrics during an incident |
+| [`trace-analysis`](agents/trace-analysis.md) | Follow critical paths and cascading failures |
+| [`cluster-admin`](agents/cluster-admin.md) | Inspect and manage a Berserk cluster with appropriate access |
+
+## Updates
+
+For skills installed with the Agent Skills CLI:
+
+```sh
+npx skills update
 ```
 
-### Prerequisites
+For the Claude Code plugin, refresh the marketplace and update the plugin from
+your terminal:
 
-Install the `bzrk` CLI:
-
-```bash
-curl -fsSL https://go.bzrk.dev | bash
+```sh
+claude plugin marketplace update berserk-skills
+claude plugin update berserk@berserk-skills
 ```
 
-Configure a profile pointing to your Berserk instance:
+For a manually downloaded copy, fetch the latest revision and replace the copy
+your agent uses.
 
-```bash
-bzrk profile list
-```
+## Maintained with Berserk
 
-### Usage
+The Berserk skill is **maintained in the Berserk source repository** and generated
+from the same guidance used by Berserk MCP and the in-app assistant. This keeps
+query semantics, extensions, and time-unit guidance aligned across interfaces.
+This repository distributes the generated skill and the Claude Code plugin;
+specialist agents are maintained here.
 
-Once installed, just ask Claude to query your data:
+For questions, feedback, or corrections, contact [support@berserk.dev](mailto:support@berserk.dev).
 
-- "Search for errors in the last hour"
-- "Look at traces around 2024-01-07T08:38:00Z"
-- "What services are logging?"
-- "Investigate connection refused errors"
-
-The agents are invoked automatically when Claude needs to do focused investigation without filling up your main conversation with query results. The **berserk** skill routes tasks to the appropriate specialist agent based on the query type.
-
-You can also invoke agents explicitly:
-
-- "Use the explore agent to check what services are logging"
-- "Use the incident-triage agent to investigate the production outage"
-- "Use the trace-analysis agent to analyze trace abc123"
-
-### Claude Agent SDK
-
-Use the berserk-explore agent programmatically:
-
-```typescript
-import { query } from "@anthropic-ai/claude-agent-sdk";
-
-for await (const message of query({
-  prompt: "Investigate error rates across services in the last 6 hours",
-  options: {
-    allowedTools: ["Bash", "Read", "Grep", "Glob", "Agent"],
-    settingSources: ["project"], // loads CLAUDE.md + installed plugins
-  },
-})) {
-  if ("result" in message) console.log(message.result);
-}
-```
-
-Or define agents inline without the plugin:
-
-```typescript
-import { query } from "@anthropic-ai/claude-agent-sdk";
-import { readFileSync } from "fs";
-
-const agentPrompt = readFileSync("agents/explore.md", "utf-8");
-
-for await (const message of query({
-  prompt: "What services have the highest error rates?",
-  options: {
-    allowedTools: ["Bash", "Read", "Grep", "Glob", "Agent"],
-    agents: {
-      explore: {
-        description: "Explore and query observability data in Berserk",
-        prompt: agentPrompt,
-        tools: ["Bash", "Read", "Grep", "Glob"],
-        model: "sonnet",
-      },
-    },
-  },
-})) {
-  if ("result" in message) console.log(message.result);
-}
-```
-
-## OpenCode
-
-[OpenCode](https://opencode.ai) discovers skills from `.claude/skills/` automatically:
-
-```bash
-git clone https://github.com/berserkdb/berserk-skills.git /tmp/berserk-skills
-cp -r /tmp/berserk-skills/skills/berserk .claude/skills/
-```
-
-Or install globally for all projects:
-
-```bash
-cp -r /tmp/berserk-skills/skills/berserk ~/.claude/skills/
-```
-
-## Other Agents
-
-Support for Cursor, GitHub Copilot, and other coding agents is planned. Contributions welcome.
-
-## Maintaining the generated skill
-
-`skills/berserk/SKILL.md` is generated from shared Markdown sections in the Berserk
-source repository, alongside the MCP and in-app guidance. Edit those sections and
-export the skill instead of editing the generated file here. Specialist agents
-under `agents/` are maintained in this repository.
-
-See the [generation and publishing guide](https://git.internal.bzrk.dev/berserkdb/rustytrace/src/commit/e04ebe016fa9bc66e90b32aed8c022f5699f5995/docs/dev/agent-guidance.md)
-for regeneration, drift checks, versioning and publication. The generating source
-revision is recorded as `Berserk-source:` in each release commit.
+[Berserk](https://berserk.dev) · [Documentation](https://docs.bzrk.dev/) · [License](LICENSE)
