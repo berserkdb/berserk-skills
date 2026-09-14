@@ -126,11 +126,12 @@ your agent uses.
 
 ## Maintained with Berserk
 
-The Berserk skill is **maintained in the Berserk source repository** and generated
-from the same guidance used by Berserk MCP and the in-app assistant. This keeps
-query semantics, extensions, and time-unit guidance aligned across interfaces.
-This repository distributes the generated skill and the Claude Code plugin;
-specialist agents are maintained here.
+The Berserk skill and specialist agents are **maintained in the Berserk source
+repository** and generated from shared guidance used by Berserk MCP and the
+in-app assistant. This keeps query semantics, extensions, and time-unit guidance
+aligned across interfaces. Each specialist combines those shared rules with a
+focused investigation workflow. This repository distributes the generated skill
+and Claude Code plugin.
 
 For questions, feedback, or corrections, contact [support@berserk.dev](mailto:support@berserk.dev).
 

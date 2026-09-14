@@ -256,23 +256,6 @@ Berserk prunes chunks via bloom / range indexes and only reads what a query need
 - **Order after aggregating when possible.** Sort the small output of a `summarize` for ranked groups. Use raw timestamp ordering when the question requires newest rows.
 - **Peek before you commit.** When log-pattern / `fieldstats` / OTel-stats helpers   don't fit, `<query> | take 2` is the fastest way to see the shape of the data   before writing the real query.
 
-## Metrics
-
-Each metric row is one OTel data point. `$raw` refers to that whole underlying record — every stored field. The common OTel fields are surfaced as typed columns (`value`, `metric_name`, `aggregation_temporality`, …) and bare names resolve against the record automatically (permissive mode), so you rarely write `$raw` yourself. You pass `$raw` to the OTel counter/histogram aggregates specifically because they operate on the *entire* data point — value, temporality, and timing together — not a single column, which is what lets them handle cumulative-vs-delta correctly. Group by `metric_hash` (one series per label set — required for counter rates, or per-pod values mix and produce wrong rates). Pick the aggregate by metric kind:
-
-- **Counter** — `otel_rate($raw)`: the per-second rate of the monotonic counter   (bytes, requests, drops). This is the OTel equivalent of `rate(value, timestamp)`.
-- **Histogram** — `otel_histogram_merge($raw)` to merge buckets, or   `otel_histogram_percentile($raw, <p>)` for a percentile (e.g. p95 latency). Keep   the bin ≥ 2 scrape intervals — a single-snapshot bin reads NaN.
-- **Gauge** — plain `avg(value)` / `max(value)`; a gauge is   already an instantaneous value, so no OTel function and no `$raw`.
-
-Canonical shape (per-series counter rate, largest series first):
-
-    <table>
-    | where metric_name == '<name>'
-    | make-series value = otel_rate($raw) on timestamp step 1m by metric_hash
-    | top 1000 by series_max(value) desc
-
-`make-series` needs a `step`; add explicit `from <start> to <end>` only when you want a fixed axis rather than the scanned window.
-
 ## Log pattern discovery
 
 To find recurring log shapes — templatize each body and count how often each pattern occurs — use:
@@ -284,6 +267,23 @@ To find recurring log shapes — templatize each body and count how often each p
     | extend p = extract_log_template(take_any_body), rex = log_template_regex(take_any_body)
     | project p, count, rex
     | top 500 by count desc
+
+## Metrics
+
+Each metric row is one OTel data point. `$raw` refers to that whole underlying record — every stored field. The common OTel fields are surfaced as typed columns (`value`, `metric_name`, `aggregation_temporality`, …) and bare names resolve against the record automatically (permissive mode), so you rarely write `$raw` yourself. You pass `$raw` to the OTel counter/histogram aggregates specifically because they operate on the *entire* data point — value, temporality, and timing together — not a single column, which is what lets them handle cumulative-vs-delta correctly. `otel_rate` reads `metric_hash` from its input and handles each series separately, then sums their rates. Group by `metric_hash` when you want separate output series, not as a correctness requirement. Preserve that field inside the metric record; dropping it makes unrelated series indistinguishable. Pick the aggregate by metric kind:
+
+- **Counter** — `otel_rate($raw)`: the per-second rate of the monotonic counter   (bytes, requests, drops). This is the OTel equivalent of `rate(value, timestamp)`.
+- **Histogram** — `otel_histogram_merge($raw)` to merge buckets, or   `otel_histogram_percentile($raw, <p>)` for a percentile (e.g. p95 latency). Inspect temporality and choose bins with enough observations. Cumulative histograms need multiple snapshots for a percentile over the interval; delta histograms can contribute from one snapshot. Filter invalid percentile results with `isnotnull(p95) and isfinite(p95)`. `isnotnull` alone keeps NaN. Plain histogram merging sums cumulative snapshots; its count is not a per-bin observation delta.
+- **Gauge** — plain `avg(value)` / `max(value)`; a gauge is   already an instantaneous value, so no OTel function and no `$raw`.
+
+Canonical shape (per-series counter rate, largest series first):
+
+    <table>
+    | where metric_name == '<name>'
+    | make-series value = otel_rate($raw) on timestamp step 1m by metric_hash
+    | top 1000 by series_max(value) desc
+
+`make-series` needs a `step`; add explicit `from <start> to <end>` only when you want a fixed axis rather than the scanned window.
 
 ### Finding traces, not just individual spans
 
