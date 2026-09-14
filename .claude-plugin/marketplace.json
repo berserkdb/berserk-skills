@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Berserk skills and agents for AI coding agents",
-    "version": "1.4.0"
+    "version": "1.5.0"
   },
   "plugins": [
     {
@@ -26,7 +26,7 @@
         "./agents/incident-triage.md",
         "./agents/trace-analysis.md"
       ],
-      "version": "1.4.0"
+      "version": "1.5.0"
     }
   ]
 }
